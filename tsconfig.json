@@ -1,0 +1,14 @@
+{
+  "include": ["actions/**/*", "test/**/*", "e2e/**/*", "web-src/**/*"],
+  "exclude": ["node_modules", "dist"],
+  "compilerOptions": {
+    "target": "ES6",
+    "module": "ES6",
+    "moduleResolution": "node",
+    "sourceMap": true,
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "noEmit": true
+  }
+}

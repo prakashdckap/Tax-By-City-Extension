@@ -1,0 +1,173 @@
+application:
+  actions: actions
+
+modules:
+  admin-ui:
+    web:
+      src: web-src
+      entry: index.html
+    menu:
+      - id: tax-by-city
+        label: Tax By City
+        parent: system
+
+runtimeManifest:
+  database:
+    auto-provision: false
+    region: amer
+  packages:
+    tax-by-city:
+      license: Apache-2.0
+      actions:
+        tax-rate:
+          function: actions/tax-rate/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        tax-config:
+          function: actions/tax-config/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        generic:
+          function: actions/generic/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        publish-events:
+          function: actions/publish-events/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            apiKey: $SERVICE_API_KEY
+          annotations:
+            require-adobe-auth: true
+            final: true
+        manage-tax:
+          function: actions/manage-tax-rate/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            MAGENTO_COMMERCE_DOMAIN: na1-sandbox.api.commerce.adobe.com
+            MAGENTO_INSTANCE_ID: GMBkaBQSumFG4qaxU86h3L
+            ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+            ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+            ADOBE_TOKEN_URL: https://ims-na1.adobelogin.com/ims/token/v3
+            ADOBE_SCOPE: AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api,read_client_secret,manage_client_secrets,event_receiver_api
+          annotations:
+            require-adobe-auth: true
+            final: true
+        generate-token:
+          function: actions/generate-token/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+            ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+            ADOBE_TOKEN_URL: https://ims-na1.adobelogin.com/ims/token/v3
+            ADOBE_SCOPE: AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api,read_client_secret,manage_client_secrets,event_receiver_api
+          annotations:
+            require-adobe-auth: false
+            final: true
+        list-tax-rates:
+          function: actions/list-tax-rates/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        get-taxes:
+          function: actions/webAPI/get-taxes/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        save-tax-rate:
+          function: actions/webAPI/save-tax-rate/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            RUNTIME_USERNAME: b43be220-d54d-4315-96f4-9d0be1b4ad3c
+            RUNTIME_PASSWORD: ekK2UmlM0WgFf6bgj5rUwp26va7O5s7sTJLPJS8O2y0uf2X8f628kw0V42jqGJq8
+          annotations:
+            require-adobe-auth: false
+            final: true
+        delete-tax-rate-action:
+          function: actions/delete-tax-rate/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        delete-tax-rate:
+          function: actions/webAPI/delete-tax-rate/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        get-tax-percentage:
+          function: actions/get-tax-percentage/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            final: true
+        calculate-tax-rate:
+          function: actions/calculate-tax-rate/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: false
+            final: true
+        hello-world:
+          function: actions/hello-world/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: false
+            final: true
+        magento-tax-rate:
+          function: actions/magento-tax-rate/magento-tax-rate.zip
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            MAGENTO_COMMERCE_DOMAIN: na1-sandbox.api.commerce.adobe.com
+            MAGENTO_INSTANCE_ID: GMBkaBQSumFG4qaxU86h3L
+            API_KEY: "02cacbf78e8b4e8d8cfe2f1eaa886c30"
+            IMS_ORG_ID: "C116239B68225A790A495C96@AdobeOrg"
+          annotations:
+            require-adobe-auth: false
+            final: true

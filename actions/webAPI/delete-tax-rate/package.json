@@ -1,0 +1,10 @@
+{
+  "name": "delete-tax-rate",
+  "version": "1.0.0",
+  "description": "Delete tax rate from App Builder database",
+  "main": "index.js",
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
+

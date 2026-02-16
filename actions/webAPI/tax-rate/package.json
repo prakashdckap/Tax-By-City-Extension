@@ -1,0 +1,9 @@
+{
+  "name": "tax-rate",
+  "version": "1.0.0",
+  "description": "Tax rate action",
+  "main": "index.js",
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}

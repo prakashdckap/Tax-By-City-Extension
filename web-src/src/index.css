@@ -1,0 +1,155 @@
+/*
+* Magento Backend Style Styling
+*/
+
+html,
+body {
+  margin: 0;
+  font-family: 'Open Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  color: #303030;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/** Magento-style Table Styling **/
+.magento-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.magento-table thead th {
+  background: #000;
+  color: #fff;
+  padding: 10px;
+  text-align: left;
+  font-weight: 600;
+  border: 1px solid #333;
+  font-size: 13px;
+}
+
+.magento-table tbody td {
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  font-size: 13px;
+}
+
+.magento-table tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+.magento-table tbody tr:hover {
+  background: #f3f4f6;
+}
+
+/** Magento-style Button **/
+.magento-button-primary {
+  background: #eb5202;
+  border: 1px solid #eb5202;
+  color: #fff;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.magento-button-primary:hover {
+  background: #d84315;
+  border-color: #d84315;
+}
+
+/** Custom Sidebar Styling **/
+.SideNav {
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  outline: none;
+}
+
+.SideNav-itemLink {
+  display: block;
+  width: 100%;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.SideNav-itemLink:hover {
+  background-color: #3a3a3a;
+}
+
+.SideNav-itemLink.is-selected {
+  background-color: #514f50;
+  border-left: 3px solid #eb5202;
+}
+
+/** Mobile Responsive Styles **/
+@media (max-width: 768px) {
+  /* Hide sidebar on mobile - will be toggled */
+  .mobile-sidebar-hidden {
+    display: none !important;
+  }
+  
+  /* Mobile menu button */
+  .mobile-menu-button {
+    display: block !important;
+  }
+  
+  /* Responsive header */
+  .header-user-name {
+    display: none !important;
+  }
+  
+  /* Responsive padding */
+  .mobile-padding {
+    padding: 15px !important;
+  }
+  
+  /* Stack cards vertically */
+  .mobile-stack {
+    flex-direction: column !important;
+  }
+  
+  /* Full width on mobile */
+  .mobile-full-width {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+  
+  /* Smaller text on mobile */
+  .mobile-text {
+    font-size: 12px !important;
+  }
+  
+  /* Table scroll container */
+  .table-scroll-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Responsive table */
+  .magento-table {
+    min-width: 800px;
+  }
+  
+  /* Hide less important elements on mobile */
+  .mobile-hide {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-menu-button {
+    display: none !important;
+  }
+  
+  .mobile-sidebar-hidden {
+    display: block !important;
+  }
+}

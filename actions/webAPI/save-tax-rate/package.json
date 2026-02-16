@@ -1,0 +1,11 @@
+{
+  "name": "save-tax-rate",
+  "version": "1.0.0",
+  "description": "Save tax rate to App Builder database and Magento",
+  "main": "index.js",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.0.0"
+  }
+}
+
