@@ -18,6 +18,7 @@
  * - Duplicate tax rates (uses highest rate)
  */
 
+const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
 const libDb = require('@adobe/aio-lib-db');
 const { ObjectId } = require('bson');
 
@@ -25,11 +26,12 @@ const COLLECTION_NAME = 'tax_rates';
 const DEFAULT_REGION = 'amer';
 
 /**
- * Initialize database connection
+ * Initialize database connection with IMS token (per App Builder DB docs).
  */
-async function initDb(region = DEFAULT_REGION) {
+async function initDb(params = {}, region = DEFAULT_REGION) {
   try {
-    const db = await libDb.init({ region });
+    const token = await generateAccessToken(params);
+    const db = await libDb.init({ token: token.access_token, region });
     const client = await db.connect();
     const collection = client.collection(COLLECTION_NAME);
     return { client, collection };
@@ -118,13 +120,13 @@ function isExactZipcodeMatch(customerZipcode, taxRateZipcode) {
 /**
  * Find all matching tax rates based on location and configuration
  */
-async function findMatchingTaxRates(location, config, region) {
+async function findMatchingTaxRates(location, config, region, params = {}) {
   const { country, state, zipcode, city } = location;
   const { taxByCity, enableCityForZipcodeRange } = config;
   
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Build base filter
@@ -389,7 +391,7 @@ async function calculateTaxRate(location, config, region) {
   const { taxByCity = false, enableCityForZipcodeRange = false } = config;
   
   // Find all matching tax rates
-  const matchingRates = await findMatchingTaxRates(location, config, region);
+  const matchingRates = await findMatchingTaxRates(location, config, region, params);
   
   if (matchingRates.length === 0) {
     return {

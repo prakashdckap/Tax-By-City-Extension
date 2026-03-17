@@ -1,28 +1,31 @@
 /**
  * Database Helper for Tax Rates
  * Provides CRUD operations using App Builder Database Storage (aio-lib-db)
+ * Requires IMS token via generateAccessToken(params) per App Builder DB docs.
  */
 
+const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
 const libDb = require('@adobe/aio-lib-db');
-const { DbError } = require('@adobe/aio-lib-db');
 const { ObjectId } = require('bson');
 
 const COLLECTION_NAME = 'tax_rates';
-const DEFAULT_REGION = 'amer'; // Change to 'emea' or 'apac' if needed
+const DEFAULT_REGION = 'amer';
 
 /**
- * Initialize database connection
+ * Initialize database connection with IMS token (per App Builder DB docs).
+ * @param {Object} params - Runtime action params (for include-ims-credentials)
  * @param {string} region - Database region (amer, emea, apac)
  * @returns {Promise<Object>} Database client and collection
  */
-async function initDb(region = DEFAULT_REGION) {
+async function initDb(params = {}, region = DEFAULT_REGION) {
   try {
-    const db = await libDb.init({ region });
+    const token = await generateAccessToken(params);
+    const db = await libDb.init({ token: token.access_token, region });
     const client = await db.connect();
     const collection = await client.collection(COLLECTION_NAME);
     return { client, collection };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -33,10 +36,10 @@ async function initDb(region = DEFAULT_REGION) {
  * Create indexes for optimized queries
  * Should be called once during setup
  */
-async function createIndexes(region = DEFAULT_REGION) {
+async function createIndexes(region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Create compound index for common queries (country, state, zipcode)
@@ -72,10 +75,10 @@ async function createIndexes(region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object>} Insert result
  */
-async function insertTaxRate(taxRate, region = DEFAULT_REGION) {
+async function insertTaxRate(taxRate, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Add timestamps
@@ -92,7 +95,7 @@ async function insertTaxRate(taxRate, region = DEFAULT_REGION) {
       document: { ...document, _id: result.insertedId }
     };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -109,10 +112,10 @@ async function insertTaxRate(taxRate, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object>} Insert result
  */
-async function insertManyTaxRates(taxRates, region = DEFAULT_REGION) {
+async function insertManyTaxRates(taxRates, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     const now = new Date().toISOString();
@@ -129,7 +132,7 @@ async function insertManyTaxRates(taxRates, region = DEFAULT_REGION) {
       insertedIds: result.insertedIds
     };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -147,10 +150,10 @@ async function insertManyTaxRates(taxRates, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Array>} Array of tax rates
  */
-async function findTaxRates(filter = {}, options = {}, region = DEFAULT_REGION) {
+async function findTaxRates(filter = {}, options = {}, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     const { limit, skip, sort, projection } = options;
@@ -175,7 +178,7 @@ async function findTaxRates(filter = {}, options = {}, region = DEFAULT_REGION) 
     const results = await cursor.toArray();
     return results;
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -192,16 +195,16 @@ async function findTaxRates(filter = {}, options = {}, region = DEFAULT_REGION) 
  * @param {string} region - Database region
  * @returns {Promise<Object|null>} Tax rate document or null
  */
-async function findOneTaxRate(filter, region = DEFAULT_REGION) {
+async function findOneTaxRate(filter, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     const result = await collection.findOne(filter);
     return result;
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -218,17 +221,17 @@ async function findOneTaxRate(filter, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<number>} Count of matching documents
  */
-async function countTaxRates(filter = {}, region = DEFAULT_REGION) {
+async function countTaxRates(filter = {}, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     const cursor = collection.find(filter);
     const results = await cursor.toArray();
     return results.length;
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -246,10 +249,10 @@ async function countTaxRates(filter = {}, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object>} Update result
  */
-async function updateTaxRate(filter, update, region = DEFAULT_REGION) {
+async function updateTaxRate(filter, update, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Add updated_at timestamp
@@ -268,7 +271,7 @@ async function updateTaxRate(filter, update, region = DEFAULT_REGION) {
       modifiedCount: result.modifiedCount
     };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -286,10 +289,10 @@ async function updateTaxRate(filter, update, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object>} Update result
  */
-async function updateManyTaxRates(filter, update, region = DEFAULT_REGION) {
+async function updateManyTaxRates(filter, update, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Add updated_at timestamp
@@ -308,7 +311,7 @@ async function updateManyTaxRates(filter, update, region = DEFAULT_REGION) {
       modifiedCount: result.modifiedCount
     };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -326,10 +329,10 @@ async function updateManyTaxRates(filter, update, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object>} Replace result
  */
-async function replaceTaxRate(filter, replacement, region = DEFAULT_REGION) {
+async function replaceTaxRate(filter, replacement, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Preserve created_at if exists, update updated_at
@@ -345,7 +348,7 @@ async function replaceTaxRate(filter, replacement, region = DEFAULT_REGION) {
       modifiedCount: result.modifiedCount
     };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -362,10 +365,10 @@ async function replaceTaxRate(filter, replacement, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object>} Delete result
  */
-async function deleteTaxRate(filter, region = DEFAULT_REGION) {
+async function deleteTaxRate(filter, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     const result = await collection.deleteOne(filter);
@@ -374,7 +377,7 @@ async function deleteTaxRate(filter, region = DEFAULT_REGION) {
       deletedCount: result.deletedCount
     };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -391,10 +394,10 @@ async function deleteTaxRate(filter, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object>} Delete result
  */
-async function deleteManyTaxRates(filter, region = DEFAULT_REGION) {
+async function deleteManyTaxRates(filter, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     const result = await collection.deleteMany(filter);
@@ -403,7 +406,7 @@ async function deleteManyTaxRates(filter, region = DEFAULT_REGION) {
       deletedCount: result.deletedCount
     };
   } catch (error) {
-    if (error instanceof DbError) {
+    if (error && error.name === 'DbError') {
       throw new Error(`Database error: ${error.message}`);
     }
     throw error;
@@ -420,7 +423,7 @@ async function deleteManyTaxRates(filter, region = DEFAULT_REGION) {
  * @param {string} region - Database region
  * @returns {Promise<Object|null>} Tax rate document or null
  */
-async function findTaxRateByLocation(location, region = DEFAULT_REGION) {
+async function findTaxRateByLocation(location, region = DEFAULT_REGION, params = {}) {
   const { country, state, zipcode, city } = location;
   
   // Build filter
@@ -440,7 +443,7 @@ async function findTaxRateByLocation(location, region = DEFAULT_REGION) {
     filter.city = city;
   }
   
-  return await findOneTaxRate(filter, region);
+  return await findOneTaxRate(filter, region, params);
 }
 
 /**

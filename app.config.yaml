@@ -27,6 +27,7 @@ runtimeManifest:
             LOG_LEVEL: debug
           annotations:
             require-adobe-auth: true
+            include-ims-credentials: true
             final: true
         tax-config:
           function: actions/tax-config/index.js
@@ -70,6 +71,7 @@ runtimeManifest:
             ADOBE_SCOPE: AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api,read_client_secret,manage_client_secrets,event_receiver_api
           annotations:
             require-adobe-auth: true
+            include-ims-credentials: true
             final: true
         generate-token:
           function: actions/generate-token/index.js
@@ -84,14 +86,33 @@ runtimeManifest:
           annotations:
             require-adobe-auth: false
             final: true
+        get-db-token:
+          function: actions/get-db-token/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+            ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+            ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+            ADOBE_TOKEN_URL: https://ims-na1.adobelogin.com/ims/token/v3
+            # Include DB scopes so token works for App Builder Database (avoids 401 Oauth token is not valid)
+            ADOBE_SCOPE: AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage,read_client_secret,manage_client_secrets,event_receiver_api
+          annotations:
+            require-adobe-auth: false
+            final: true
         list-tax-rates:
           function: actions/list-tax-rates/index.js
           web: 'yes'
           runtime: nodejs:22
           inputs:
             LOG_LEVEL: debug
+            ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+            ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+            ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
           annotations:
-            require-adobe-auth: true
+            require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         get-taxes:
           function: actions/webAPI/get-taxes/index.js
@@ -101,6 +122,7 @@ runtimeManifest:
             LOG_LEVEL: debug
           annotations:
             require-adobe-auth: true
+            include-ims-credentials: true
             final: true
         save-tax-rate:
           function: actions/webAPI/save-tax-rate/index.js
@@ -121,6 +143,7 @@ runtimeManifest:
             LOG_LEVEL: debug
           annotations:
             require-adobe-auth: true
+            include-ims-credentials: true
             final: true
         delete-tax-rate:
           function: actions/webAPI/delete-tax-rate/index.js
@@ -130,6 +153,22 @@ runtimeManifest:
             LOG_LEVEL: debug
           annotations:
             require-adobe-auth: true
+            include-ims-credentials: true
+            final: true
+        get-tax-rate:
+          function: actions/get-tax-rate/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            # Optional: override generate-token URL; else built from __OW_NAMESPACE
+            # GENERATE_TOKEN_URL: https://<namespace>.adobeioruntime.net/api/v1/web/tax-by-city/generate-token
+            # Fallback DB auth (if generate-token fails):
+            ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+            ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+          annotations:
+            require-adobe-auth: true
+            include-ims-credentials: true
             final: true
         get-tax-percentage:
           function: actions/get-tax-percentage/index.js
@@ -139,6 +178,7 @@ runtimeManifest:
             LOG_LEVEL: debug
           annotations:
             require-adobe-auth: true
+            include-ims-credentials: true
             final: true
         calculate-tax-rate:
           function: actions/calculate-tax-rate/index.js
@@ -148,6 +188,7 @@ runtimeManifest:
             LOG_LEVEL: debug
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         hello-world:
           function: actions/hello-world/index.js
@@ -158,9 +199,32 @@ runtimeManifest:
           annotations:
             require-adobe-auth: false
             final: true
+        fetch-db-table:
+          function: actions/fetch-db-table/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+            ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+            ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+          annotations:
+            require-adobe-auth: false
+            include-ims-credentials: true
+            final: true
+        db-debug:
+          function: actions/db-debug/index.js
+          web: 'yes'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+          annotations:
+            require-adobe-auth: true
+            include-ims-credentials: true
+            final: true
         magento-tax-rate:
           function: actions/magento-tax-rate/magento-tax-rate.zip
-          web: 'yes'
+          web: 'no'
           runtime: nodejs:22
           inputs:
             LOG_LEVEL: debug

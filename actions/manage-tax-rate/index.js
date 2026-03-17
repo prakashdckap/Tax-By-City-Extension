@@ -7,6 +7,7 @@
 
 require('dotenv').config();
 
+const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
 const axios = require('axios');
 const libDb = require('@adobe/aio-lib-db');
 const { ObjectId } = require('bson');
@@ -347,14 +348,15 @@ async function syncToMagento(data, operation, taxIdentifier = null, existingData
 /* --------------------------------------------------------------------------
  * DATABASE
  * -------------------------------------------------------------------------- */
-async function initDb(region) {
-  const db = await libDb.init({ region });
+async function initDb(params, region) {
+  const token = await generateAccessToken(params);
+  const db = await libDb.init({ token: token.access_token, region });
   const client = await db.connect();
   return { client, collection: client.collection(COLLECTION_NAME) };
 }
 
-async function insertTaxRate(data, region) {
-  const { client, collection } = await initDb(region);
+async function insertTaxRate(data, region, params) {
+  const { client, collection } = await initDb(params, region);
   const result = await collection.insertOne({
     ...data,
     created_at: new Date(),
@@ -364,8 +366,8 @@ async function insertTaxRate(data, region) {
   return result.insertedId;
 }
 
-async function updateTaxRate(filter, data, region) {
-  const { client, collection } = await initDb(region);
+async function updateTaxRate(filter, data, region, params) {
+  const { client, collection } = await initDb(params, region);
   const result = await collection.updateOne(filter, {
     $set: { ...data, updated_at: new Date() }
   });
@@ -373,8 +375,8 @@ async function updateTaxRate(filter, data, region) {
   return result.modifiedCount > 0;
 }
 
-async function findTaxRate(filter, region) {
-  const { client, collection } = await initDb(region);
+async function findTaxRate(filter, region, params) {
+  const { client, collection } = await initDb(params, region);
   const doc = await collection.findOne(filter);
   await client.close();
   return doc;
@@ -474,7 +476,7 @@ async function main(params) {
       tax_region_id: taxRate.tax_region_id || null
     };
 
-    const id = await insertTaxRate(finalTaxRate, region);
+    const id = await insertTaxRate(finalTaxRate, region, params);
 
     return {
       statusCode: 201,
@@ -507,7 +509,8 @@ async function main(params) {
 
     const existing = await findTaxRate(
       { _id: new ObjectId(body._id) },
-      region
+      region,
+      params
     );
 
     if (!existing) {
@@ -685,7 +688,8 @@ async function main(params) {
     await updateTaxRate(
       { _id: existing._id },
       finalTaxRate,
-      region
+      region,
+      params
     );
 
     return {

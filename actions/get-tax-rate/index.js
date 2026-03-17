@@ -1,41 +1,171 @@
 /**
  * Get Tax Rate Action - Retrieve tax rate from App Builder Database
  * Queries tax rates based on country, state, zipcode, and optional city
- * 
- * GET /get-tax-rate - Get tax rate by location
+ *
+ * All credentials and URLs from app.config.yaml (action inputs) or env only.
+ * DB auth: try Runtime (ow) first, then token from generate-token action (generate-token
+ * reads its own credentials from config/env), then IMS fallback from get-tax-rate params/env.
  */
 
+const https = require('https');
 const libDb = require('@adobe/aio-lib-db');
-const { ObjectId } = require('bson');
 
 const COLLECTION_NAME = 'tax_rates';
 const DEFAULT_REGION = 'amer';
+const DB_SCOPE = 'adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage';
+
+/** Build generate-token web URL from config/env only. No hardcoded URLs. */
+function getGenerateTokenUrl(params) {
+  const url = params.GENERATE_TOKEN_URL || process.env.GENERATE_TOKEN_URL;
+  if (url) return url;
+  const namespace = params.__OW_NAMESPACE || params.runtimeNamespace || process.env.__OW_NAMESPACE;
+  if (namespace) {
+    return `https://${namespace}.adobeioruntime.net/api/v1/web/tax-by-city/generate-token`;
+  }
+  return null;
+}
+
+function hasServiceCredentials(params) {
+  const clientId = params.clientId || params.ADOBE_CLIENT_ID || process.env.ADOBE_CLIENT_ID;
+  const clientSecret = params.clientSecret || params.ADOBE_CLIENT_SECRET || process.env.ADOBE_CLIENT_SECRET;
+  return !!(clientId && clientSecret);
+}
 
 /**
- * Initialize database connection
+ * Get access token by calling the generate-token action.
+ * Generate-token gets clientId, clientSecret, tokenUrl from its own app.config inputs or env.
+ * We only pass scope (DB scope) so the token works for App Builder DB.
  */
-async function initDb(region = DEFAULT_REGION) {
-  try {
-    const db = await libDb.init({ region });
+function getServiceTokenViaGenerateToken(params) {
+  return new Promise((resolve, reject) => {
+    const generateTokenUrl = getGenerateTokenUrl(params);
+    if (!generateTokenUrl) {
+      reject(new Error('GENERATE_TOKEN_URL or __OW_NAMESPACE required (app.config inputs or env)'));
+      return;
+    }
+    const body = JSON.stringify({
+      scope: params.ADOBE_SCOPE || process.env.ADOBE_SCOPE || DB_SCOPE
+    });
+    const u = new URL(generateTokenUrl);
+    const req = https.request({
+      hostname: u.hostname,
+      path: u.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const payload = json.body || json;
+          const token = payload.access_token;
+          if (token) resolve(token);
+          else reject(new Error(payload.message || payload.error || 'No access_token from generate-token'));
+        } catch (e) {
+          reject(new Error(data || e.message));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/** Fallback: generate token via IMS client_credentials (used if generate-token endpoint fails). */
+const IMS_TOKEN_URL = 'https://ims-na1.adobelogin.com/ims/token/v3';
+function getServiceTokenDirect(params) {
+  return new Promise((resolve, reject) => {
+    const clientId = params.clientId || params.ADOBE_CLIENT_ID || process.env.ADOBE_CLIENT_ID;
+    const clientSecret = params.clientSecret || params.ADOBE_CLIENT_SECRET || process.env.ADOBE_CLIENT_SECRET;
+    const scope = params.scope || process.env.ADOBE_SCOPE || DB_SCOPE;
+    if (!clientId || !clientSecret) {
+      reject(new Error('ADOBE_CLIENT_ID and ADOBE_CLIENT_SECRET required'));
+      return;
+    }
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'client_credentials',
+      scope
+    }).toString();
+    const u = new URL(IMS_TOKEN_URL);
+    const req = https.request({
+      hostname: u.hostname,
+      path: u.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) }
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.access_token) resolve(json.access_token);
+          else reject(new Error(json.error_description || json.error || 'No access_token'));
+        } catch (e) {
+          reject(new Error(data || e.message));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Initialize database: try Runtime (ow) auth first, then service token (client_credentials).
+ * Avoids "Oauth token is not valid" when invoked with Basic auth (no IMS context).
+ */
+async function initDb(params, region = DEFAULT_REGION) {
+  const namespace = params.__OW_NAMESPACE || params.runtimeNamespace || process.env.__OW_NAMESPACE;
+  const auth = params.__OW_API_KEY || params.runtimeAuth || process.env.__OW_API_KEY;
+  if (namespace && auth) {
+    const db = await libDb.init({ ow: { namespace, auth }, region });
     const client = await db.connect();
     const collection = await client.collection(COLLECTION_NAME);
     return { client, collection };
-  } catch (error) {
-    // Check if it's a database-related error by checking error name or message
-    if (error && (error.name === 'DbError' || (error.message && error.message.includes('Database')))) {
-      throw new Error(`Database error: ${error.message}`);
-    }
-    throw error;
   }
+  if (getGenerateTokenUrl(params)) {
+    try {
+      const token = await getServiceTokenViaGenerateToken(params);
+      const db = await libDb.init({ token, region });
+      const client = await db.connect();
+      const collection = await client.collection(COLLECTION_NAME);
+      return { client, collection };
+    } catch (e) {
+      if (hasServiceCredentials(params)) {
+        const token = await getServiceTokenDirect(params);
+        const db = await libDb.init({ token, region });
+        const client = await db.connect();
+        const collection = await client.collection(COLLECTION_NAME);
+        return { client, collection };
+      }
+      throw e;
+    }
+  }
+  if (hasServiceCredentials(params)) {
+    const token = await getServiceTokenDirect(params);
+    const db = await libDb.init({ token, region });
+    const client = await db.connect();
+    const collection = await client.collection(COLLECTION_NAME);
+    return { client, collection };
+  }
+  throw new Error('Database auth failed: set GENERATE_TOKEN_URL or __OW_NAMESPACE (for generate-token), or ADOBE_CLIENT_ID/ADOBE_CLIENT_SECRET in app.config/env');
 }
 
 /**
  * Find tax rate by location
  */
-async function findTaxRateByLocation(country, state, zipcode, city = null, region = DEFAULT_REGION) {
+async function findTaxRateByLocation(country, state, zipcode, city = null, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Build filter
@@ -132,15 +262,21 @@ async function main(params) {
       body: {}
     };
   }
-
   try {
-    // Parse request body if present
+    // Parse request body if present (supports base64-encoded __ow_body from Runtime/web actions)
     let body = null;
     if (params["__ow_body"]) {
       try {
-        body = typeof params["__ow_body"] === 'string' 
-          ? JSON.parse(params["__ow_body"]) 
-          : params["__ow_body"];
+        const raw = params["__ow_body"];
+        if (typeof raw === 'string') {
+          try {
+            body = JSON.parse(Buffer.from(raw, 'base64').toString('utf-8'));
+          } catch (_) {
+            body = JSON.parse(raw);
+          }
+        } else {
+          body = raw;
+        }
       } catch (e) {
         console.error('Error parsing body:', e);
         return {
@@ -196,7 +332,7 @@ async function main(params) {
     // zipcode is optional - no validation needed
 
     // Find tax rate(s)
-    const taxRateResult = await findTaxRateByLocation(country, state, zipcode, city, region);
+    const taxRateResult = await findTaxRateByLocation(country, state, zipcode, city, region, params);
 
     if (!taxRateResult || (Array.isArray(taxRateResult) && taxRateResult.length === 0)) {
       return {

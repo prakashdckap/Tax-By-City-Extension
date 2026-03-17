@@ -8,6 +8,7 @@
 require('dotenv').config();
 
 const axios = require('axios');
+const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
 const libDb = require('@adobe/aio-lib-db');
 const { ObjectId } = require('bson');
 
@@ -15,16 +16,16 @@ const COLLECTION_NAME = 'tax_rates';
 const DEFAULT_REGION = 'amer';
 
 /**
- * Initialize database connection
+ * Initialize database connection with IMS token (per App Builder DB docs).
  */
-async function initDb(region = DEFAULT_REGION) {
+async function initDb(params = {}, region = DEFAULT_REGION) {
   try {
-    const db = await libDb.init({ region });
+    const token = await generateAccessToken(params);
+    const db = await libDb.init({ token: token.access_token, region });
     const client = await db.connect();
     const collection = await client.collection(COLLECTION_NAME);
     return { client, collection };
   } catch (error) {
-    // Check if it's a database-related error by checking error name or message
     if (error && (error.name === 'DbError' || (error.message && error.message.includes('Database')))) {
       throw new Error(`Database error: ${error.message}`);
     }
@@ -131,11 +132,11 @@ async function deleteFromMagento(taxIdentifier, region = DEFAULT_REGION) {
 /**
  * Find tax rate by ID (to get tax_identifier before deletion)
  */
-async function findTaxRateById(taxRateId, region = DEFAULT_REGION) {
+async function findTaxRateById(taxRateId, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
     console.log('[DEBUG] findTaxRateById - Looking for ID:', taxRateId, 'type:', typeof taxRateId);
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Convert string ID to ObjectId
@@ -186,12 +187,12 @@ async function findTaxRateById(taxRateId, region = DEFAULT_REGION) {
 /**
  * Delete tax rate by ID (from both Magento and Database)
  */
-async function deleteTaxRateById(taxRateId, region = DEFAULT_REGION) {
+async function deleteTaxRateById(taxRateId, region = DEFAULT_REGION, params = {}) {
   let client;
   try {
     // First, find the tax rate to get tax_identifier
     console.log('[DEBUG] delete-tax-rate - Searching for tax rate with ID:', taxRateId);
-    const taxRate = await findTaxRateById(taxRateId, region);
+    const taxRate = await findTaxRateById(taxRateId, region, params);
     console.log('[DEBUG] delete-tax-rate - Tax rate found:', taxRate ? 'YES' : 'NO');
     
     if (!taxRate) {
@@ -245,7 +246,7 @@ async function deleteTaxRateById(taxRateId, region = DEFAULT_REGION) {
     }
 
     // Delete from database
-    const { client: dbClient, collection } = await initDb(region);
+    const { client: dbClient, collection } = await initDb(params, region);
     client = dbClient;
     
     // Convert string ID to ObjectId
@@ -393,7 +394,7 @@ async function main(params) {
     }
 
     // Delete the tax rate
-    const result = await deleteTaxRateById(taxRateId, region);
+    const result = await deleteTaxRateById(taxRateId, region, params);
 
     if (result.success) {
       return {

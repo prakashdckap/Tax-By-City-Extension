@@ -37,19 +37,30 @@ async function main(params) {
       };
     }
 
-    // Call list-tax-rates API internally - using exact format as specified
+    // Parse query params (from __ow_query when UI calls get-taxes?limit=0) - default limit=0 = all records
+    let limit = 0;
+    let page = 1;
+    if (params['__ow_query']) {
+      const q = typeof params['__ow_query'] === 'string' ? params['__ow_query'] : '';
+      const parsed = new URLSearchParams(q);
+      if (parsed.has('limit')) limit = parseInt(parsed.get('limit'), 10) || 0;
+      if (parsed.has('page')) page = parseInt(parsed.get('page'), 10) || 1;
+    }
+    if (isNaN(limit) || limit < 0) limit = 0;
+
+    // Call list-tax-rates API internally - pass limit=0 to get ALL records (no limit)
     try {
-      // Use direct action endpoint as per user's specification
-      const listTaxRatesUrl = 'https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/list-tax-rates?result=true&blocking=true&limit=100&page=1';
-      
+      const listTaxRatesUrl = 'https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/list-tax-rates?result=true&blocking=true';
+
       const config = {
-        method: 'post', // As per user's specification
+        method: 'post',
         maxBodyLength: Infinity,
         url: listTaxRatesUrl,
         headers: {
           'Authorization': 'Basic YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=',
           'Content-Type': 'application/json'
-        }
+        },
+        data: { limit, page }
       };
 
       const response = await axios.request(config);

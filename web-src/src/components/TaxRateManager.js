@@ -64,7 +64,7 @@ const TaxRateManager = (props) => {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortDescriptor, setSortDescriptor] = useState({ column: null, direction: 'asc' })
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize, setPageSize] = useState(100)
   const [filterStatus, setFilterStatus] = useState('all') // 'all', 'active', 'inactive'
   
   // Column-specific filters (Magento style)
@@ -1093,78 +1093,39 @@ const TaxRateManager = (props) => {
         'x-gw-ims-org-id': props.ims.org
       }
 
-      // Get action URL - use get-taxes endpoint (which internally calls list-tax-rates)
-      // Always use web action URL format to avoid CORS issues
+      // Call list-tax-rates DIRECTLY with GET ?limit=0 to get ALL records (no 20 limit)
+      // Bypasses get-taxes so the limit is in the URL and always applied by list-tax-rates
       let actionUrl
-      
-      // First check config.json (has web action URL)
-      if (allActions['get-taxes'] && allActions['get-taxes'].includes('/web/')) {
-        actionUrl = allActions['get-taxes']
-        console.log('Got action URL from allActions["get-taxes"]:', actionUrl)
-      } else if (allActions['tax-by-city/get-taxes'] && allActions['tax-by-city/get-taxes'].includes('/web/')) {
-        actionUrl = allActions['tax-by-city/get-taxes']
-        console.log('Got action URL from allActions["tax-by-city/get-taxes"]:', actionUrl)
+      if (allActions['list-tax-rates'] && allActions['list-tax-rates'].includes('/web/')) {
+        actionUrl = allActions['list-tax-rates']
+        console.log('Using list-tax-rates URL from config:', actionUrl)
+      } else if (allActions['tax-by-city/list-tax-rates'] && allActions['tax-by-city/list-tax-rates'].includes('/web/')) {
+        actionUrl = allActions['tax-by-city/list-tax-rates']
+        console.log('Using list-tax-rates URL from config:', actionUrl)
       } else {
-        // Construct web action URL directly (always use web format for CORS)
         const baseUrl = props.runtime?.actionUrl || 'https://3676633-taxbycity-stage.adobeioruntime.net'
-        actionUrl = `${baseUrl}/api/v1/web/tax-by-city/get-taxes`
-        console.log('Constructed web action URL:', actionUrl)
+        actionUrl = `${baseUrl}/api/v1/web/tax-by-city/list-tax-rates`
+        console.log('Constructed list-tax-rates URL:', actionUrl)
       }
 
-      // Validate that we're using web action URL format (not direct action endpoint)
-      if (actionUrl && !actionUrl.includes('/web/')) {
-        console.warn('Warning: Action URL is not a web action format. Converting to web action URL...')
-        // Convert direct action URL to web action URL
-        if (actionUrl.includes('/actions/get-taxes')) {
-          const baseUrl = actionUrl.split('/api/v1/')[0] || 'https://3676633-taxbycity-stage.adobeioruntime.net'
-          actionUrl = `${baseUrl}/api/v1/web/tax-by-city/get-taxes`
-          console.log('Converted to web action URL:', actionUrl)
-        }
+      if (!actionUrl || !actionUrl.includes('/web/')) {
+        throw new Error('list-tax-rates web action URL not found. Check config.json or runtime.')
       }
 
-      if (!actionUrl) {
-        throw new Error('Action URL not found. Please ensure the get-taxes action is deployed and configured in config.json or runtime.')
-      }
-
-      // Final validation: Ensure we're using web action URL (not direct action endpoint)
-      if (actionUrl.includes('/actions/get-taxes') && !actionUrl.includes('/web/')) {
-        console.error('ERROR: Direct action endpoint detected. Converting to web action URL...')
-        // Extract base URL and convert to web action format
-        const urlMatch = actionUrl.match(/^(https?:\/\/[^\/]+)/)
-        const baseUrl = urlMatch ? urlMatch[1] : 'https://3676633-taxbycity-stage.adobeioruntime.net'
-        actionUrl = `${baseUrl}/api/v1/web/tax-by-city/get-taxes`
-        console.log('Converted to web action URL:', actionUrl)
-      }
-
-      console.log('Using action URL:', actionUrl)
-      console.log('URL is web action format:', actionUrl.includes('/web/'))
-      console.log('IMS token present:', !!props.ims?.token)
-      console.log('IMS org present:', !!props.ims?.org)
-
-      // Validate action URL format
       try {
         new URL(actionUrl)
       } catch (urlError) {
-        throw new Error(`Invalid action URL format: ${actionUrl}. Please check your configuration.`)
-      }
-      
-      // Final check: must be web action URL
-      if (!actionUrl.includes('/web/')) {
-        throw new Error(`Action URL must be a web action URL (must contain '/web/'). Current URL: ${actionUrl}`)
+        throw new Error(`Invalid action URL format: ${actionUrl}.`)
       }
 
       try {
-        // Use GET request to fetch from get-taxes endpoint (no query parameters needed)
-        // The get-taxes endpoint internally calls list-tax-rates with limit=100&page=1
-        console.log('Fetching tax rates from get-taxes API...', { actionUrl, forceFromDatabase })
-        
-        // Use actionWebInvoke with GET method (no params needed)
-        const response = await actionWebInvoke(actionUrl, headers, {}, { method: 'GET' })
+        // GET with ?limit=0 = return ALL records (list-tax-rates only accepts GET)
+        console.log('Fetching tax rates from list-tax-rates with limit=0 (all records)...', { actionUrl, forceFromDatabase })
+        const response = await actionWebInvoke(actionUrl, headers, { limit: 0 }, { method: 'GET' })
           
-          console.log('Response from get-taxes API:', JSON.stringify(response, null, 2))
+          console.log('Response from list-tax-rates API:', JSON.stringify(response, null, 2))
           
-          // Handle get-taxes response format: { data: [...], pagination: {...}, status: 'Success' }
-          // or wrapped format: { statusCode: 200, body: { status: 'Success', data: [...], pagination: {...} } }
+          // Handle list-tax-rates response: { statusCode, body: { status, data: [...], pagination } } or direct { status, data, pagination }
           let rates = []
           
           // Check if response has statusCode and body (wrapped format)
@@ -1242,7 +1203,7 @@ const TaxRateManager = (props) => {
           } else if (err.message.includes('401') || err.message.includes('403')) {
             errorMessage = `Authentication failed. Please ensure you are logged in to Adobe I/O and have proper permissions.`
           } else if (err.message.includes('404')) {
-            errorMessage = `Action not found at ${actionUrl}. Please ensure the get-taxes action is deployed.`
+            errorMessage = `Action not found at ${actionUrl}. Please ensure the list-tax-rates action is deployed.`
           }
           
           // If forcing from database, don't fall back to localStorage

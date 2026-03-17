@@ -16,18 +16,18 @@ Then deploy: `aio app deploy` (or push to trigger CI/CD).
 
 ### Manual deploy with wsk (from action folder)
 
-If you deploy manually with `wsk`, use **update** (action already exists) and enable **web** so it’s callable without Basic auth:
+If you deploy manually with `wsk`, use **update** (action already exists). The action is deployed as **private** (like `manage-tax`), not as a web action:
 
 ```bash
 cd actions/magento-tax-rate
 # Rebuild zip if needed (see above), then:
 wsk action update tax-by-city/magento-tax-rate magento-tax-rate.zip \
-  --web true \
+  --web false \
   --kind nodejs:22
 ```
 
 - Use **update** (not create) after the first deploy so the action is refreshed.
-- **`--web true`** makes the action show as "web" in `aio runtime action list` and allows calls to the web URL without auth.
+- **`--web false`** makes the action show as "private" in `aio runtime action list` (published action, invoked with namespace auth).
 - From project root, use the zip path: `actions/magento-tax-rate/magento-tax-rate.zip`.
 
 ## Environment

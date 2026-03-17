@@ -246,14 +246,17 @@ async function createInMagento(data) {
 /* --------------------------------------------------------------------------
  * DATABASE
  * -------------------------------------------------------------------------- */
-async function initDb(region) {
-  const db = await libDb.init({ region });
+const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
+
+async function initDb(params, region) {
+  const token = await generateAccessToken(params);
+  const db = await libDb.init({ token: token.access_token, region });
   const client = await db.connect();
   return { client, collection: client.collection(COLLECTION_NAME) };
 }
 
-async function insertTaxRate(data, region) {
-  const { client, collection } = await initDb(region);
+async function insertTaxRate(data, region, params) {
+  const { client, collection } = await initDb(params, region);
   const result = await collection.insertOne({
     ...data,
     created_at: new Date(),
@@ -344,7 +347,7 @@ async function main(params) {
     tax_region_id: taxRate.tax_region_id || null
   };
 
-  const id = await insertTaxRate(finalTaxRate, region);
+  const id = await insertTaxRate(finalTaxRate, region, params);
 
   return {
     statusCode: 201,
