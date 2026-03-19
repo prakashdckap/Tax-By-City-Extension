@@ -7,7 +7,6 @@
 
 require('dotenv').config();
 
-const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
 const axios = require('axios');
 const libDb = require('@adobe/aio-lib-db');
 const { ObjectId } = require('bson');

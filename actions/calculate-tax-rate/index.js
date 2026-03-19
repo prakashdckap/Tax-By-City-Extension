@@ -1,7 +1,10 @@
 /**
  * Calculate Tax Rate Action
  * Implements Magento tax calculation logic with city-level extension
- * 
+ *
+ * Correct raw invoke URL (default package):
+ *   https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/calculate-tax-rate?result=true&blocking=true
+ *
  * Calculation Logic & Priority:
  * - Priority -> ascending
  * - Tax_calculation Rule -> ascending
@@ -9,7 +12,7 @@
  * - Tax ID -> descending
  * - Postcode -> descending
  * - Value -> descending
- * 
+ *
  * Supports:
  * - Tax by City (enabled/disabled)
  * - City for Zipcode Range (enabled/disabled)
@@ -18,29 +21,103 @@
  * - Duplicate tax rates (uses highest rate)
  */
 
-const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
-const libDb = require('@adobe/aio-lib-db');
+const https = require('https');
 const { ObjectId } = require('bson');
 
 const COLLECTION_NAME = 'tax_rates';
 const DEFAULT_REGION = 'amer';
+const DEFAULT_NAMESPACE = '3676633-taxbycity-stage';
+const DB_SERVICE_URL_TEMPLATE = 'https://storage-database-<region>.app-builder.int.adp.adobe.io';
+
+const RAW_GET_DB_TOKEN_URL = process.env.RAW_GET_DB_TOKEN_URL || `https://adobeioruntime.net/api/v1/namespaces/${DEFAULT_NAMESPACE}/actions/get-db-token?result=true&blocking=true`;
+const DEFAULT_RUNTIME_AUTH_BASE64 = process.env.DEFAULT_RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64 || 'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
 
 /**
- * Initialize database connection with IMS token (per App Builder DB docs).
+ * Get token via raw invoke of get-db-token with Basic auth and ADOBE_CLIENT_ID/ADOBE_CLIENT_SECRET in body (same as list-tax-rates / get-tax-rate).
  */
-async function initDb(params = {}, region = DEFAULT_REGION) {
-  try {
-    const token = await generateAccessToken(params);
-    const db = await libDb.init({ token: token.access_token, region });
-    const client = await db.connect();
-    const collection = client.collection(COLLECTION_NAME);
-    return { client, collection };
-  } catch (error) {
-    if (error && (error.name === 'DbError' || (error.message && error.message.includes('Database')))) {
-      throw new Error(`Database error: ${error.message}`);
-    }
-    throw error;
-  }
+function getTokenFromGetDbTokenRaw(params) {
+  return new Promise((resolve) => {
+    const basicAuth = params.RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64 ||
+      (() => {
+        const h = params.__ow_headers || {};
+        const auth = h.authorization || h.Authorization;
+        return (auth && typeof auth === 'string' && auth.startsWith('Basic ')) ? auth.substring(6).trim() : null;
+      })() ||
+      DEFAULT_RUNTIME_AUTH_BASE64;
+    const clientId = params.ADOBE_CLIENT_ID || process.env.ADOBE_CLIENT_ID;
+    const clientSecret = params.ADOBE_CLIENT_SECRET || process.env.ADOBE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) return resolve(null);
+    const body = JSON.stringify({ ADOBE_CLIENT_ID: clientId, ADOBE_CLIENT_SECRET: clientSecret });
+    const u = new URL(RAW_GET_DB_TOKEN_URL);
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          'Authorization': `Basic ${basicAuth}`
+        }
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const result = json?.response?.result || json?.result || json;
+            if (result?.statusCode >= 400) return resolve(null);
+            const token = result?.body?.access_token || result?.access_token;
+            resolve(token || null);
+          } catch (_) { resolve(null); }
+        });
+      }
+    );
+    req.on('error', () => resolve(null));
+    req.write(body);
+    req.end();
+  });
+}
+
+/** Call App Builder DB find API with Bearer token (same as get-tax-rate / list-tax-rates). */
+function dbFindWithBearerToken(namespace, region, bearerToken, collectionName, filter, options) {
+  const baseUrl = DB_SERVICE_URL_TEMPLATE.replace(/<region>/gi, (region || DEFAULT_REGION).toLowerCase());
+  const path = `/v1/collection/${encodeURIComponent(collectionName)}/find`;
+  const body = JSON.stringify({ filter: filter || {}, options: options || {} });
+  return new Promise((resolve, reject) => {
+    const u = new URL(baseUrl);
+    const req = https.request({
+      hostname: u.hostname,
+      path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'Authorization': `Bearer ${bearerToken}`,
+        'x-runtime-namespace': namespace
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (res.statusCode >= 400) {
+            reject(new Error(json.message || data || `HTTP ${res.statusCode}`));
+            return;
+          }
+          if (json.success && json.data !== undefined) resolve(json.data);
+          else reject(new Error(json.message || 'Invalid DB response'));
+        } catch (e) {
+          reject(new Error(data || e.message));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 /**
@@ -118,99 +195,59 @@ function isExactZipcodeMatch(customerZipcode, taxRateZipcode) {
 }
 
 /**
- * Find all matching tax rates based on location and configuration
+ * Find all matching tax rates based on location and configuration.
+ * Uses DB REST API with Bearer token (same as get-tax-rate/list-tax-rates) to avoid libDb 401.
  */
 async function findMatchingTaxRates(location, config, region, params = {}) {
   const { country, state, zipcode, city } = location;
-  const { taxByCity, enableCityForZipcodeRange } = config;
+  const { taxByCity } = config;
   
-  let client;
-  try {
-    const { client: dbClient, collection } = await initDb(params, region);
-    client = dbClient;
-    
-    // Build base filter
-    const filter = {
-      tax_country_id: country,
-      status: { $ne: false } // Only active rates
-    };
-    
-    // State/Region filter
-    if (state) {
-      filter.tax_region_id = state;
-    }
-    
-    // Get all potential matches (we'll filter by zipcode and city in code)
-    const allRates = await collection.find(filter).toArray();
-    
-    // Filter by zipcode and city matching
-    const exactMatches = [];
-    const rangeMatches = [];
-    const wildcardMatches = [];
-    
-    for (const rate of allRates) {
-      const rateZipcode = rate.tax_postcode || rate.postcode || '*';
-      const rateCity = rate.city || null;
-      
-      // Check zipcode match type
-      let zipcodeMatchType = null;
-      if (isExactZipcodeMatch(zipcode, rateZipcode)) {
-        zipcodeMatchType = 'exact';
-      } else if (zipcodeMatches(zipcode, rateZipcode)) {
-        if (rateZipcode === '*') {
-          zipcodeMatchType = 'wildcard';
-        } else {
-          zipcodeMatchType = 'range';
-        }
-      }
-      
-      if (!zipcodeMatchType) continue;
-      
-      // Check city match based on configuration
-      if (taxByCity) {
-        // If "Tax by City" is enabled, city must match exactly
-        // If city is provided, rate must have matching city
-        if (city) {
-          if (!rateCity || city !== rateCity) {
-            continue; // City doesn't match, skip this rate
-          }
-        } else {
-          // If city is not provided but tax by city is enabled, 
-          // only match rates without city specified
-          if (rateCity) {
-            continue; // Rate has city but customer doesn't, skip
-          }
-        }
-      } else {
-        // If "Tax by City" is disabled, ignore city matching
-        // Magento will revert to default behavior (Country → State → Zipcode)
-      }
-      
-      // Categorize by match type for prioritization
-      if (zipcodeMatchType === 'exact') {
-        exactMatches.push(rate);
-      } else if (zipcodeMatchType === 'range') {
-        rangeMatches.push(rate);
-      } else {
-        wildcardMatches.push(rate);
-      }
-    }
-    
-    // Prioritize: exact matches > range matches > wildcard matches
-    // If exact matches exist, only return those (per Use Case #1 Case 2)
-    if (exactMatches.length > 0) {
-      return exactMatches;
-    }
-    
-    // Otherwise, return range matches and wildcard matches
-    return [...rangeMatches, ...wildcardMatches];
-  } catch (error) {
-    throw error;
-  } finally {
-    if (client) {
-      await client.close();
-    }
+  const token = await getTokenFromGetDbTokenRaw(params);
+  if (!token) {
+    throw new Error('Database token unavailable. Set ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET, and RUNTIME_AUTH_BASE64 (or Basic auth) on the action.');
   }
+  const namespace = params.__OW_NAMESPACE || params.runtimeNamespace || process.env.__OW_NAMESPACE || DEFAULT_NAMESPACE;
+  
+  const filter = {
+    tax_country_id: country,
+    status: { $ne: false }
+  };
+  if (state) filter.tax_region_id = state;
+  
+  const raw = await dbFindWithBearerToken(namespace, region, token, COLLECTION_NAME, filter, { limit: 500 });
+  const allRates = Array.isArray(raw) ? raw : (raw?.cursor?.firstBatch || raw?.documents || []);
+  
+  const exactMatches = [];
+  const rangeMatches = [];
+  const wildcardMatches = [];
+  
+  for (const rate of allRates) {
+    const rateZipcode = rate.tax_postcode || rate.postcode || '*';
+    const rateCity = rate.city || null;
+    
+    let zipcodeMatchType = null;
+    if (isExactZipcodeMatch(zipcode, rateZipcode)) {
+      zipcodeMatchType = 'exact';
+    } else if (zipcodeMatches(zipcode, rateZipcode)) {
+      zipcodeMatchType = rateZipcode === '*' ? 'wildcard' : 'range';
+    }
+    if (!zipcodeMatchType) continue;
+    
+    if (taxByCity) {
+      if (city) {
+        if (!rateCity || city !== rateCity) continue;
+      } else {
+        if (rateCity) continue;
+      }
+    }
+    
+    if (zipcodeMatchType === 'exact') exactMatches.push(rate);
+    else if (zipcodeMatchType === 'range') rangeMatches.push(rate);
+    else wildcardMatches.push(rate);
+  }
+  
+  if (exactMatches.length > 0) return exactMatches;
+  return [...rangeMatches, ...wildcardMatches];
 }
 
 /**
@@ -386,7 +423,7 @@ function calculateFinalTaxRate(rates, location, config) {
 /**
  * Main calculation function
  */
-async function calculateTaxRate(location, config, region) {
+async function calculateTaxRate(location, config, region, params = {}) {
   const { country, state, zipcode, city } = location;
   const { taxByCity = false, enableCityForZipcodeRange = false } = config;
   
@@ -411,7 +448,7 @@ async function calculateTaxRate(location, config, region) {
     location: location,
     config: config,
     matchingRates: matchingRates.map(rate => ({
-      _id: rate._id?.toString(),
+      _id: (rate._id && rate._id.$oid) ? rate._id.$oid : (rate._id?.toString ? rate._id.toString() : (rate._id != null ? String(rate._id) : undefined)),
       rate: parseFloat(rate.rate) || 0,
       tax_country_id: rate.tax_country_id,
       tax_region_id: rate.tax_region_id,
@@ -552,7 +589,7 @@ async function main(params) {
     }
 
     // Calculate tax rate
-    const result = await calculateTaxRate(location, config, region);
+    const result = await calculateTaxRate(location, config, region, params);
 
     return {
       statusCode: 200,

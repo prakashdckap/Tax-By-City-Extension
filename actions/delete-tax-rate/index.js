@@ -66,9 +66,9 @@ function getMagentoConfig() {
 }
 
 /**
- * Generate access token for Magento API
+ * Generate access token for Magento API (IMS client credentials)
  */
-async function generateAccessToken(config) {
+async function getImsAccessToken(config) {
   const response = await axios.post(config.tokenUrl, null, {
     params: {
       client_id: config.clientId,
@@ -86,7 +86,7 @@ async function generateAccessToken(config) {
  * Get access token (use cached or generate new)
  */
 async function getAccessToken(config) {
-  return config.accessToken || generateAccessToken(config);
+  return config.accessToken || getImsAccessToken(config);
 }
 
 /**

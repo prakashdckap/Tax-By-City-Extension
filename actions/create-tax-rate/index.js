@@ -3,42 +3,106 @@
  * Flow:
  * 1. Create tax rate in Magento Commerce
  * 2. Persist tax rate in App Builder Database (only if Magento succeeds)
+ *
+ * Correct raw invoke URL (default package):
+ *   https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/create-tax-rate?result=true&blocking=true
  */
 
-require('dotenv').config();
+try { require('dotenv').config(); } catch (_) {}
 
+const https = require('https');
 const axios = require('axios');
 const libDb = require('@adobe/aio-lib-db');
 
 const COLLECTION_NAME = 'tax_rates';
 const DEFAULT_REGION = 'amer';
+const DEFAULT_NAMESPACE = '3676633-taxbycity-stage';
+
+/** Raw invoke URL for get-db-token (default package). Same as list-tax-rates / get-tax-rate. */
+const RAW_GET_DB_TOKEN_URL = process.env.RAW_GET_DB_TOKEN_URL || `https://adobeioruntime.net/api/v1/namespaces/${DEFAULT_NAMESPACE}/actions/get-db-token?result=true&blocking=true`;
+const DEFAULT_RUNTIME_AUTH_BASE64 = process.env.DEFAULT_RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64 || 'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
+
+/**
+ * Get token via raw invoke of get-db-token with Basic auth and ADOBE_CLIENT_ID/ADOBE_CLIENT_SECRET in body.
+ * @param {Object} params - Action params
+ * @returns {Promise<string|null>} access_token or null
+ */
+function getTokenFromGetDbTokenRaw(params) {
+  return new Promise((resolve) => {
+    const basicAuth = params.RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64 ||
+      (() => {
+        const h = params.__ow_headers || {};
+        const auth = h.authorization || h.Authorization;
+        return (auth && typeof auth === 'string' && auth.startsWith('Basic ')) ? auth.substring(6).trim() : null;
+      })() ||
+      DEFAULT_RUNTIME_AUTH_BASE64;
+    const clientId = params.ADOBE_CLIENT_ID || process.env.ADOBE_CLIENT_ID;
+    const clientSecret = params.ADOBE_CLIENT_SECRET || process.env.ADOBE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return resolve(null);
+    }
+    const body = JSON.stringify({ ADOBE_CLIENT_ID: clientId, ADOBE_CLIENT_SECRET: clientSecret });
+    const u = new URL(RAW_GET_DB_TOKEN_URL);
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          'Authorization': `Basic ${basicAuth}`
+        }
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const result = json?.response?.result || json?.result || json;
+            if (result?.statusCode >= 400) {
+              return resolve(null);
+            }
+            const token = result?.body?.access_token || result?.access_token;
+            resolve(token || null);
+          } catch (_) {
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on('error', () => resolve(null));
+    req.write(body);
+    req.end();
+  });
+}
 
 /* --------------------------------------------------------------------------
- * MAGENTO CONFIG
+ * MAGENTO CONFIG (reads from params first, then process.env)
  * -------------------------------------------------------------------------- */
-function getMagentoConfig() {
-  const {
-    MAGENTO_COMMERCE_DOMAIN,
-    MAGENTO_INSTANCE_ID,
-    ADOBE_CLIENT_ID,
-    ADOBE_CLIENT_SECRET,
-    ADOBE_TOKEN_URL,
-    ADOBE_SCOPE,
-    MAGENTO_ACCESS_TOKEN
-  } = process.env;
+function getMagentoConfig(params = {}) {
+  const p = (k) => params[k] != null ? params[k] : process.env[k];
+  const commerceDomain = p('MAGENTO_COMMERCE_DOMAIN');
+  const instanceId = p('MAGENTO_INSTANCE_ID');
+  const clientId = p('ADOBE_CLIENT_ID');
+  const clientSecret = p('ADOBE_CLIENT_SECRET');
+  const tokenUrl = p('ADOBE_TOKEN_URL');
+  const scope = p('ADOBE_SCOPE');
+  const accessToken = p('MAGENTO_ACCESS_TOKEN');
 
-  if (!MAGENTO_COMMERCE_DOMAIN || !ADOBE_CLIENT_ID || !ADOBE_CLIENT_SECRET) {
-    throw new Error('Missing Magento / Adobe environment variables');
+  if (!commerceDomain || !clientId || !clientSecret) {
+    throw new Error('Missing Magento / Adobe config: set MAGENTO_COMMERCE_DOMAIN, ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET in action params or env');
   }
 
   return {
-    commerceDomain: MAGENTO_COMMERCE_DOMAIN,
-    instanceId: MAGENTO_INSTANCE_ID,
-    clientId: ADOBE_CLIENT_ID,
-    clientSecret: ADOBE_CLIENT_SECRET,
-    tokenUrl: ADOBE_TOKEN_URL || 'https://ims-na1.adobelogin.com/ims/token/v3',
-    scope: ADOBE_SCOPE || 'AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api',
-    accessToken: MAGENTO_ACCESS_TOKEN
+    commerceDomain,
+    instanceId: instanceId || '',
+    clientId,
+    clientSecret,
+    tokenUrl: tokenUrl || 'https://ims-na1.adobelogin.com/ims/token/v3',
+    scope: scope || 'AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api',
+    accessToken
   };
 }
 
@@ -201,8 +265,8 @@ function formatMagentoTaxRatePayload(data) {
   return payload;
 }
 
-async function createInMagento(data) {
-  const config = getMagentoConfig();
+async function createInMagento(data, params = {}) {
+  const config = getMagentoConfig(params);
   const token = await getAccessToken(config);
   const url = `https://${config.commerceDomain}/${config.instanceId}/V1/taxRates`;
 
@@ -246,24 +310,45 @@ async function createInMagento(data) {
 /* --------------------------------------------------------------------------
  * DATABASE
  * -------------------------------------------------------------------------- */
-const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
 
-async function initDb(params, region) {
-  const token = await generateAccessToken(params);
-  const db = await libDb.init({ token: token.access_token, region });
+async function initDb(params, region = DEFAULT_REGION) {
+  const namespace = params.__OW_NAMESPACE || params.runtimeNamespace || process.env.__OW_NAMESPACE || DEFAULT_NAMESPACE;
+  // Try raw get-db-token first (same as list-tax-rates / get-tax-rate)
+  const tokenFromGetDbToken = await getTokenFromGetDbTokenRaw(params);
+  if (tokenFromGetDbToken) {
+    const db = await libDb.init({ token: tokenFromGetDbToken, region, ow: { namespace } });
+    const client = await db.connect();
+    return { client, collection: client.collection(COLLECTION_NAME) };
+  }
+  // Fallback: IMS token from aio-sdk (include-ims-credentials)
+  let token;
+  try {
+    const { generateAccessToken } = require('@adobe/aio-sdk').Core.AuthClient;
+    token = (await generateAccessToken(params)).access_token;
+  } catch (e) {
+    throw new Error('Database auth failed: set ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET, RUNTIME_AUTH_BASE64 for get-db-token');
+  }
+  const db = await libDb.init({ token, region, ow: { namespace } });
   const client = await db.connect();
   return { client, collection: client.collection(COLLECTION_NAME) };
 }
 
 async function insertTaxRate(data, region, params) {
   const { client, collection } = await initDb(params, region);
-  const result = await collection.insertOne({
-    ...data,
-    created_at: new Date(),
-    updated_at: new Date()
-  });
-  await client.close();
-  return result.insertedId;
+  try {
+    const result = await collection.insertOne({
+      ...data,
+      created_at: new Date(),
+      updated_at: new Date()
+    });
+    return result.insertedId;
+  } finally {
+    try {
+      await client.close();
+    } catch (closeErr) {
+      console.warn('create-tax-rate: client.close warning', closeErr?.message || closeErr);
+    }
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -295,7 +380,7 @@ async function main(params) {
   }
 
   // Create in Magento
-  const magento = await createInMagento(taxRate);
+  const magento = await createInMagento(taxRate, params);
 
   // Format tax identifier
   const formatTaxIdentifier = (country, state, rate, customCode) => {

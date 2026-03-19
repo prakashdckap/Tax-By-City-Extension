@@ -1,0 +1,6 @@
+{
+  "name": "tax-rates-table",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "Tax rates table API - no npm dependencies, Node built-ins only"
+}

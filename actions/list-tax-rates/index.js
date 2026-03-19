@@ -25,6 +25,9 @@ const TAX_RATES_COLLECTION = process.env.TAX_RATES_COLLECTION || 'tax_rates';
 /** Fallback Basic auth (base64) for calling token action when not in params/headers; override with RUNTIME_AUTH_BASE64 or DEFAULT_RUNTIME_AUTH_BASE64. */
 const DEFAULT_RUNTIME_AUTH_BASE64 = process.env.DEFAULT_RUNTIME_AUTH_BASE64 || 'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
 const APIHOST = 'https://adobeioruntime.net';
+/** Raw invoke URL for get-db-token (default package). Pass ADOBE_CLIENT_ID and ADOBE_CLIENT_SECRET in body. */
+const RAW_GET_DB_TOKEN_URL = process.env.RAW_GET_DB_TOKEN_URL || `${APIHOST}/api/v1/namespaces/${DEFAULT_NAMESPACE}/actions/get-db-token?result=true&blocking=true`;
+
 /** Build token generation action URLs for a namespace. Package action (get-db-token) has app.config inputs; DBToken is root action. */
 function getTokenActionUrls(namespace) {
   const ns = namespace || DEFAULT_NAMESPACE;
@@ -32,6 +35,64 @@ function getTokenActionUrls(namespace) {
     process.env.GET_DB_TOKEN_URL || `${APIHOST}/api/v1/namespaces/${ns}/actions/tax-by-city/get-db-token?result=true&blocking=true`,
     process.env.DB_TOKEN_URL || `${APIHOST}/api/v1/namespaces/${ns}/actions/DBToken?result=true&blocking=true`
   ];
+}
+
+/**
+ * Get token via raw invoke of get-db-token with Basic auth and ADOBE_CLIENT_ID/ADOBE_CLIENT_SECRET in body (same as tax-rates-table).
+ * @param {Object} params - Action params (ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET, RUNTIME_AUTH_BASE64 or __ow_headers)
+ * @returns {Promise<{token: string, namespace: string}|null>}
+ */
+function getTokenFromGetDbTokenRaw(params) {
+  return new Promise((resolve) => {
+    const basicAuth = params.RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64 ||
+      (() => {
+        const h = params.__ow_headers || {};
+        const auth = h.authorization || h.Authorization;
+        return (auth && typeof auth === 'string' && auth.startsWith('Basic ')) ? auth.substring(6).trim() : null;
+      })() ||
+      DEFAULT_RUNTIME_AUTH_BASE64;
+    const clientId = params.ADOBE_CLIENT_ID || process.env.ADOBE_CLIENT_ID;
+    const clientSecret = params.ADOBE_CLIENT_SECRET || process.env.ADOBE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return resolve(null);
+    }
+    const body = JSON.stringify({ ADOBE_CLIENT_ID: clientId, ADOBE_CLIENT_SECRET: clientSecret });
+    const u = new URL(RAW_GET_DB_TOKEN_URL);
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          'Authorization': `Basic ${basicAuth}`
+        }
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const result = json?.response?.result || json?.result || json;
+            if (result?.statusCode >= 400) {
+              return resolve(null);
+            }
+            const token = result?.body?.access_token || result?.access_token;
+            if (token) {
+              const ns = params.__OW_NAMESPACE || params.runtimeNamespace || process.env.__OW_NAMESPACE || DEFAULT_NAMESPACE;
+              return resolve({ token, namespace: ns });
+            }
+          } catch (_) {}
+          resolve(null);
+        });
+      }
+    );
+    req.on('error', () => resolve(null));
+    req.write(body);
+    req.end();
+  });
 }
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
@@ -304,8 +365,11 @@ async function main(params) {
 
     const { collectionName, filter, sort, limit, skip, region } = parseParams(params);
     const actionNamespace = params.__OW_NAMESPACE || params.runtimeNamespace || process.env.__OW_NAMESPACE || DEFAULT_NAMESPACE;
-    // Token from code: token action (uses Basic auth username as namespace for URL); use that namespace for DB so token and DB workspace match
-    let tokenResult = await getTokenFromTokenAction(params);
+    // Token: first try raw get-db-token with client id/secret in body (same as tax-rates-table), then token action, then service credentials
+    let tokenResult = await getTokenFromGetDbTokenRaw(params);
+    if (!tokenResult) {
+      tokenResult = await getTokenFromTokenAction(params);
+    }
     let bearerToken = tokenResult ? tokenResult.token : null;
     let dbNamespace = tokenResult ? tokenResult.namespace : actionNamespace;
     if (!bearerToken && hasServiceCredentials(params)) {
