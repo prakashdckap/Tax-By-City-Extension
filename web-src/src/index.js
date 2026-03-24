@@ -9,6 +9,7 @@ import ReactDOM from 'react-dom'
 import Runtime, { init } from '@adobe/exc-app'
 
 import App from './components/App'
+import allActions from './config.json'
 import './index.css'
 
 window.React = require('react')
@@ -25,11 +26,19 @@ try {
 }
 
 function bootstrapRaw () {
-  /* **here you can mock the exc runtime and ims objects** */
-  const mockRuntime = { on: () => {} }
-  const mockIms = {}
+  /* Outside Experience Cloud Shell (e.g. static URL / Cursor browser): no IMS unless dev sets it. */
+  const mockRuntime = {
+    on: () => {},
+    off: () => {},
+    getActionUrl: (name) =>
+      allActions[name] || allActions[`tax-by-city/${name}`] || null
+  }
+  const mockIms = {
+    token: localStorage.getItem('taxByCityImsToken') || undefined,
+    org: localStorage.getItem('taxByCityImsOrg') || undefined,
+    user: { name: localStorage.getItem('taxByCityImsUser') || 'Local preview' }
+  }
 
-  // render the actual react application and pass along the runtime object to make it available to the App
   ReactDOM.render(
     <App runtime={mockRuntime} ims={mockIms} />,
     document.getElementById('root')

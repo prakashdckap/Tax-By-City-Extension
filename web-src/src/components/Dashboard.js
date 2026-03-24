@@ -2,7 +2,7 @@
 * Dashboard Component - Shows overview and statistics
 */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import PropTypes from 'prop-types'
 import {
   Flex,
@@ -10,10 +10,23 @@ import {
   View,
   Text,
   ProgressCircle,
-  StatusLight
+  StatusLight,
+  Link
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
+
+/**
+ * Same default as actions/webAPI/list-tax-rates when RUNTIME_* is not bound.
+ * Used only for dashboard count when there is no IMS session (e.g. static URL / embedded browsers).
+ * Override with config.json "runtimeBasicAuthBase64" if your deploy uses different Runtime credentials.
+ */
+const DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64 =
+  'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg='
+
+const SYNC_CONNECTED = 'Connected'
+const SYNC_CONNECTED_PREVIEW = 'Connected (runtime auth)'
+const SYNC_NOT_SIGNED_IN = 'Not signed in'
 
 const Dashboard = (props) => {
   const [stats, setStats] = useState({
@@ -23,67 +36,138 @@ const Dashboard = (props) => {
   })
   const [loading, setLoading] = useState(true)
 
+  const experienceCloudShellUrl = useMemo(() => {
+    const u = new URL(window.location.href)
+    const indexHref = u.pathname.endsWith('.html')
+      ? `${u.origin}${u.pathname}`
+      : `${u.origin}/index.html`
+    return `https://experience.adobe.com/?devMode=true#/custom-apps/?localDevUrl=${encodeURIComponent(indexHref)}`
+  }, [])
+
   useEffect(() => {
     loadStats()
-    
-  }, [props.ims, props.runtime])
+  }, [props.ims?.token, props.ims?.org, props.runtime])
 
   const loadStats = async () => {
     setLoading(true)
-    
-    try {
-      const savedSettings = localStorage.getItem('taxByCitySettings')
-      if (!savedSettings) {
-        setStats({
-          totalTaxRates: 0,
-          lastSync: 'Never',
-          syncStatus: 'Not Configured'
-        })
-        setLoading(false)
-        return
-      }
 
-      const settings = JSON.parse(savedSettings)
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
-      }
+    const namespace = allActions.runtimeNamespace || '3676633-taxbycity-stage'
 
-      const params = {
-        magentoBaseUrl: settings.magentoBaseUrl,
-        magentoAdminUsername: settings.magentoAdminUsername,
-        magentoAdminPassword: settings.magentoAdminPassword,
-        operation: 'LIST'
-      }
-
-      // Get action URL from config or runtime
-      let actionUrl
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        actionUrl = props.runtime.getActionUrl('tax-rate')
-      } else if (allActions['tax-rate']) {
-        actionUrl = allActions['tax-rate']
-      } else if (allActions['tax-by-city/tax-rate']) {
-        actionUrl = allActions['tax-by-city/tax-rate']
-      } else {
-        throw new Error('Action URL not found. Please ensure the action is deployed.')
-      }
-      
-      const response = await actionWebInvoke(actionUrl, headers, params)
-
-      if (response.statusCode === 200 && response.body) {
-        const rates = Array.isArray(response.body) ? response.body : []
-        setStats({
-          totalTaxRates: rates.length,
-          lastSync: new Date().toLocaleString(),
-          syncStatus: 'Connected'
-        })
-      }
-    } catch (err) {
+    let actionUrl
+    if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
+      actionUrl = props.runtime.getActionUrl('list-tax-rates')
+    } else if (allActions['list-tax-rates']) {
+      actionUrl = allActions['list-tax-rates']
+    } else if (allActions['tax-by-city/list-tax-rates']) {
+      actionUrl = allActions['tax-by-city/list-tax-rates']
+    } else {
+      setLoading(false)
       setStats({
         totalTaxRates: 0,
         lastSync: 'Never',
-        syncStatus: 'Error'
+        syncStatus: SYNC_NOT_SIGNED_IN
       })
+      return
+    }
+
+    const listParams = { limit: 0 }
+
+    const buildHeaders = () => {
+      if (props.ims?.token) {
+        return {
+          authorization: `Bearer ${props.ims.token}`,
+          'x-gw-ims-org-id': props.ims.org,
+          'x-runtime-namespace': namespace
+        }
+      }
+      const basic =
+        allActions.runtimeBasicAuthBase64 || DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64
+      return {
+        authorization: `Basic ${basic}`,
+        'x-runtime-namespace': namespace
+      }
+    }
+
+    try {
+      const response = await actionWebInvoke(actionUrl, buildHeaders(), listParams, { method: 'GET' })
+
+      /**
+       * Adobe web actions may return: direct body, OpenWhisk { statusCode, body },
+       * or body as a JSON string. Nested result wrappers also appear in some gateways.
+       */
+      const extractTotal = (res) => {
+        if (!res) return 0
+
+        const parseMaybe = (v) => {
+          if (v == null) return null
+          if (typeof v === 'string') {
+            try {
+              return JSON.parse(v)
+            } catch {
+              return null
+            }
+          }
+          return v
+        }
+
+        const fromPayload = (payload) => {
+          if (!payload || typeof payload !== 'object') return 0
+          if (Array.isArray(payload)) return payload.length
+          if (typeof payload.count === 'number') return payload.count
+          if (payload.data && Array.isArray(payload.data)) return payload.data.length
+          return 0
+        }
+
+        // Direct: { status: 'Success', data, count }
+        if (res.status === 'Success' || res.data != null || typeof res.count === 'number') {
+          const n = fromPayload(res)
+          if (n > 0 || (Array.isArray(res.data) && res.data.length === 0)) return n
+        }
+
+        // OpenWhisk-style
+        if (res.statusCode === 200 && res.body != null) {
+          const b = parseMaybe(res.body)
+          const n = fromPayload(b)
+          if (n > 0 || (b && Array.isArray(b.data) && b.data.length === 0)) return n
+        }
+
+        // Nested (shell / gateway)
+        const nested =
+          res.response?.result?.body ||
+          res.result?.body ||
+          res.result?.response?.result?.body
+        if (nested != null) {
+          const b = parseMaybe(nested)
+          const n = fromPayload(b)
+          if (n > 0 || (b && Array.isArray(b.data) && b.data.length === 0)) return n
+        }
+
+        if (Array.isArray(res.data)) return res.data.length
+        if (typeof res.count === 'number') return res.count
+        if (Array.isArray(res)) return res.length
+        return 0
+      }
+
+      const total = extractTotal(response)
+      setStats({
+        totalTaxRates: total,
+        lastSync: new Date().toLocaleString(),
+        syncStatus: props.ims?.token ? SYNC_CONNECTED : SYNC_CONNECTED_PREVIEW
+      })
+    } catch (err) {
+      if (!props.ims?.token) {
+        setStats({
+          totalTaxRates: 0,
+          lastSync: 'Never',
+          syncStatus: SYNC_NOT_SIGNED_IN
+        })
+      } else {
+        setStats({
+          totalTaxRates: 0,
+          lastSync: 'Never',
+          syncStatus: 'Error'
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -131,8 +215,18 @@ const Dashboard = (props) => {
                   color: 'var(--spectrum-global-color-blue-600)',
                   fontSize: '2.5rem'
                 }}>
-                  {stats.totalTaxRates}
+                  {stats.syncStatus === SYNC_NOT_SIGNED_IN ? '—' : stats.totalTaxRates}
                 </Heading>
+                {stats.syncStatus === SYNC_NOT_SIGNED_IN && (
+                  <Flex direction="column" gap="size-100" marginTop="size-100">
+                    <Text size="S" UNSAFE_style={{ color: 'var(--spectrum-global-color-gray-700)' }}>
+                      The static URL does not receive an Adobe IMS session. Open the app in Experience Cloud (dev mode) to sign in; totals load automatically after that.
+                    </Text>
+                    <Link href={experienceCloudShellUrl} target="_blank" rel="noopener noreferrer">
+                      Open TaxByCity in Experience Cloud
+                    </Link>
+                  </Flex>
+                )}
               </Flex>
             </View>
 
@@ -184,9 +278,11 @@ const Dashboard = (props) => {
                 </Text>
                 <StatusLight 
                   variant={
-                    stats.syncStatus === 'Connected' ? 'positive' : 
-                    stats.syncStatus === 'Error' ? 'negative' : 
-                    'neutral'
+                    stats.syncStatus === SYNC_CONNECTED || stats.syncStatus === SYNC_CONNECTED_PREVIEW
+                      ? 'positive'
+                      : stats.syncStatus === 'Error'
+                        ? 'negative'
+                        : 'neutral'
                   }
                 >
                   {stats.syncStatus}

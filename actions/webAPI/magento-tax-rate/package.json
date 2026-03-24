@@ -1,0 +1,10 @@
+{
+  "name": "magento-tax-rate-webapi",
+  "version": "1.0.0",
+  "description": "Magento GraphQL tax via guest cart — Web API",
+  "main": "index.js",
+  "dependencies": {
+    "@adobe/aio-lib-core-auth": "^1.1.0",
+    "axios": "^1.6.0"
+  }
+}

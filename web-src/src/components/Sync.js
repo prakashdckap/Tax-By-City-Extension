@@ -8,13 +8,12 @@ import PropTypes from 'prop-types'
 import {
   Flex,
   Heading,
-  Button,
   View,
   StatusLight,
   Text,
-  Divider,
   Well,
   ProgressCircle,
+  ProgressBar,
   TableView,
   TableHeader,
   TableBody,
@@ -25,22 +24,29 @@ import {
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
 
+const DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64 =
+  'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg='
+
+/** Deployed web action; used if config.json is missing the key */
+const SYNC_TAX_RATES_FALLBACK_URL =
+  'https://3676633-taxbycity-stage.adobeio-static.net/api/v1/web/tax-by-city/sync-tax-rates'
+
 const Sync = (props) => {
-  const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [syncingDirection, setSyncingDirection] = useState(null) // 'magento-to-extension' or 'extension-to-magento'
+  const [magentoSyncIndeterminate, setMagentoSyncIndeterminate] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
   const [syncHistory, setSyncHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState(null)
   const [progress, setProgress] = useState(0)
   const [syncLogs, setSyncLogs] = useState([])
   
   // Load Magento settings from Configuration page
   const [magentoSettings, setMagentoSettings] = useState({
     commerceDomain: '',
-    instanceId: '',
-    syncToMagento: true
+    instanceId: ''
   })
   
   useEffect(() => {
@@ -50,8 +56,7 @@ const Sync = (props) => {
         const parsed = JSON.parse(saved)
         setMagentoSettings({
           commerceDomain: parsed.commerceDomain || '',
-          instanceId: parsed.instanceId || '',
-          syncToMagento: parsed.syncToMagento !== false
+          instanceId: parsed.instanceId || ''
         })
       } catch (e) {
         // Error loading settings
@@ -59,19 +64,111 @@ const Sync = (props) => {
     }
   }, [])
 
-  // Load sync history on mount
+  // Load sync history whenever the page is shown / auth changes (last 20 from App Builder)
   useEffect(() => {
     loadSyncHistory()
-  }, [])
+  }, [props.ims?.token, props.ims?.org, props.runtime])
 
-  const loadSyncHistory = () => {
-    const saved = localStorage.getItem('taxByCitySyncHistory')
-    if (saved) {
-      try {
-        setSyncHistory(JSON.parse(saved))
-      } catch (e) {
-        console.error('Error loading sync history:', e)
+  const getActionUrl = (name, fallback) => {
+    if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
+      const fromRuntime = props.runtime.getActionUrl(name)
+      if (fromRuntime) return fromRuntime
+    }
+    if (allActions[name]) return allActions[name]
+    if (allActions[`tax-by-city/${name}`]) return allActions[`tax-by-city/${name}`]
+    return fallback
+  }
+
+  const buildApiHeaders = () => {
+    const ns = allActions.runtimeNamespace || '3676633-taxbycity-stage'
+    if (props.ims?.token) {
+      return {
+        authorization: `Bearer ${props.ims.token}`,
+        'x-gw-ims-org-id': props.ims.org,
+        'x-runtime-namespace': ns
       }
+    }
+    const basic = allActions.runtimeBasicAuthBase64 || DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64
+    return {
+      authorization: `Basic ${basic}`,
+      'x-runtime-namespace': ns
+    }
+  }
+
+  const parseHistoryRows = (res) => {
+    if (!res) return []
+    const parseMaybe = (v) => {
+      if (v == null) return null
+      if (typeof v === 'string') {
+        try {
+          return JSON.parse(v)
+        } catch {
+          return null
+        }
+      }
+      return v
+    }
+    if (Array.isArray(res.data)) return res.data
+    if (res.status === 'Success' && Array.isArray(res.data)) return res.data
+    if (res.statusCode === 200 && res.body != null) {
+      const b = parseMaybe(res.body)
+      if (b && Array.isArray(b.data)) return b.data
+    }
+    const nested = res.response?.result?.body || res.result?.body
+    if (nested != null) {
+      const b = parseMaybe(nested)
+      if (b && Array.isArray(b.data)) return b.data
+    }
+    return []
+  }
+
+  const refreshHistoryAfterSync = async () => {
+    await loadSyncHistory()
+    await new Promise((r) => setTimeout(r, 350))
+    await loadSyncHistory()
+  }
+
+  const formatModeLabel = (mode) => {
+    if (mode === 'magento-to-extension') return 'Magento to Extension'
+    if (mode === 'extension-to-magento') return 'Extension to Magento'
+    return mode || '—'
+  }
+
+  const unwrapWebActionResponse = (res) => {
+    if (!res) return null
+    if (res.body != null) {
+      if (typeof res.body === 'string') {
+        try {
+          return JSON.parse(res.body)
+        } catch {
+          return null
+        }
+      }
+      return res.body
+    }
+    if (res.status === 'Success' || res.data != null || res.message != null) return res
+    return res
+  }
+
+  const loadSyncHistory = async () => {
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const url = getActionUrl('list-sync-history')
+      if (!url) {
+        setHistoryError('list-sync-history URL not configured.')
+        setSyncHistory([])
+        return
+      }
+      const response = await actionWebInvoke(url, buildApiHeaders(), { limit: 20 }, { method: 'GET' })
+      const rows = parseHistoryRows(response)
+      setSyncHistory(Array.isArray(rows) ? rows : [])
+    } catch (e) {
+      console.error('Error loading sync history:', e)
+      setHistoryError(e.message || 'Failed to load sync history.')
+      setSyncHistory([])
+    } finally {
+      setHistoryLoading(false)
     }
   }
 
@@ -82,267 +179,88 @@ const Sync = (props) => {
 
   const handleSyncFromMagento = async () => {
     setSyncing(true)
-    setSyncingDirection('magento-to-extension')
+    setMagentoSyncIndeterminate(true)
     setError(null)
     setSuccess(false)
     setSyncResult(null)
-    setProgress(0)
+    setProgress(5)
     setSyncLogs([])
 
+    let progressTimer = null
     try {
-      addLog('Starting sync from Magento to Extension...', 'info')
-      setProgress(10)
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()))
+      addLog('Starting Magento → Extension sync (server uses MAGENTO_* / ADOBE_* from deployment)...', 'info')
+      setProgress(12)
 
-      if (!magentoSettings.commerceDomain) {
-        throw new Error('Please configure Commerce Domain in Configuration page')
+      const headers = buildApiHeaders()
+
+      const syncActionUrl =
+        getActionUrl('sync-tax-rates') ||
+        allActions['tax-by-city/sync-tax-rates'] ||
+        SYNC_TAX_RATES_FALLBACK_URL
+      if (!syncActionUrl) {
+        throw new Error('sync-tax-rates action URL not found.')
       }
 
-      if (!props.ims?.token) {
-        throw new Error('IMS token not available. Please ensure you are logged in to Adobe.')
+      addLog(`POST ${syncActionUrl}`, 'info')
+      setProgress(18)
+
+      progressTimer = setInterval(() => {
+        setProgress((p) => (p >= 88 ? p : p + 4))
+      }, 220)
+
+      const payload = {}
+      if (magentoSettings.commerceDomain) {
+        payload.commerceDomain = magentoSettings.commerceDomain
+      }
+      if (magentoSettings.instanceId) {
+        payload.instanceId = magentoSettings.instanceId
       }
 
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
+      const syncResponse = await actionWebInvoke(syncActionUrl, headers, payload, { method: 'POST' })
+
+      if (progressTimer) {
+        clearInterval(progressTimer)
+        progressTimer = null
+      }
+      setMagentoSyncIndeterminate(false)
+
+      const inner = unwrapWebActionResponse(syncResponse)
+      const syncData = inner?.data
+      if (!syncData || inner?.status === 'Error') {
+        throw new Error(
+          inner?.message || syncResponse?.message || 'Invalid sync response from sync-tax-rates'
+        )
       }
 
-      addLog('Fetching tax rates from Magento...', 'info')
-      setProgress(30)
-
-      // Use syncService to fetch from Magento
-      const { fetchTaxRatesFromMagento, mergeTaxRates } = await import('../syncService')
-      
-      const magentoTaxRates = await fetchTaxRatesFromMagento(
-        magentoSettings.commerceDomain,
-        magentoSettings.instanceId,
-        props.ims.token,
-        props.ims.org
-      )
-
-      addLog(`Found ${magentoTaxRates.length} tax rates in Magento`, 'info')
-      setProgress(50)
-
-      addLog('Merging with local storage...', 'info')
-      setProgress(70)
-
-      const mergedRates = mergeTaxRates(magentoTaxRates)
-
-      addLog(`Successfully synced ${magentoTaxRates.length} tax rates`, 'success')
       setProgress(100)
+      addLog(`Sync completed: ${syncData.synced} synced, ${syncData.failed} failed`, syncData.failed > 0 ? 'warning' : 'success')
 
       setSyncResult({
-        success: true,
-        message: `Successfully synced ${magentoTaxRates.length} tax rates from Magento`,
-        synced: magentoTaxRates.length,
-        failed: 0,
-        total: mergedRates.length
+        success: syncData.status !== 'error',
+        message: inner?.message || 'Magento sync completed',
+        synced: syncData.synced || 0,
+        failed: syncData.failed || 0,
+        total: syncData.total || 0,
+        errors: syncData.errors || []
       })
 
-      setSuccess(true)
+      setSuccess((syncData.synced || 0) > 0)
       setError(null)
+      await refreshHistoryAfterSync()
 
-      const historyEntry = {
-        timestamp: new Date().toISOString(),
-        mode: 'magento-to-extension',
-        result: {
-          synced: magentoTaxRates.length,
-          failed: 0,
-          total: mergedRates.length
-        },
-        status: 'success'
-      }
-      const updatedHistory = [historyEntry, ...syncHistory].slice(0, 20)
-      setSyncHistory(updatedHistory)
-      localStorage.setItem('taxByCitySyncHistory', JSON.stringify(updatedHistory))
-      localStorage.setItem('lastSyncTime', new Date().toISOString())
-
+      await new Promise((r) => setTimeout(r, 650))
     } catch (err) {
+      if (progressTimer) clearInterval(progressTimer)
+      setMagentoSyncIndeterminate(false)
       addLog(`Error: ${err.message}`, 'error')
       setError(`Sync failed: ${err.message}`)
       setSyncResult(null)
       setProgress(0)
-      
-      const historyEntry = {
-        timestamp: new Date().toISOString(),
-        mode: 'magento-to-extension',
-        result: { error: err.message },
-        status: 'error'
-      }
-      const updatedHistory = [historyEntry, ...syncHistory].slice(0, 20)
-      setSyncHistory(updatedHistory)
-      localStorage.setItem('taxByCitySyncHistory', JSON.stringify(updatedHistory))
     } finally {
+      if (progressTimer) clearInterval(progressTimer)
+      setMagentoSyncIndeterminate(false)
       setSyncing(false)
-      setSyncingDirection(null)
-    }
-  }
-
-  const handleSyncToMagento = async () => {
-    setSyncing(true)
-    setSyncingDirection('extension-to-magento')
-    setError(null)
-    setSuccess(false)
-    setSyncResult(null)
-    setProgress(0)
-    setSyncLogs([])
-
-    try {
-      addLog('Starting sync from Extension to Magento...', 'info')
-      setProgress(10)
-
-      if (!magentoSettings.commerceDomain) {
-        throw new Error('Please configure Commerce Domain in Configuration page')
-      }
-
-      if (!props.ims?.token) {
-        throw new Error('IMS token not available. Please ensure you are logged in to Adobe.')
-      }
-
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
-      }
-
-      addLog('Fetching tax rates from Extension...', 'info')
-      setProgress(20)
-
-      // Get tax rates from tax-rate action
-      let taxRateActionUrl
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        taxRateActionUrl = props.runtime.getActionUrl('tax-rate')
-      } else if (allActions['tax-rate']) {
-        taxRateActionUrl = allActions['tax-rate']
-      } else if (allActions['tax-by-city/tax-rate']) {
-        taxRateActionUrl = allActions['tax-by-city/tax-rate']
-      } else {
-        taxRateActionUrl = 'https://3676633-taxbycity-stage.adobeioruntime.net/api/v1/web/tax-by-city/tax-rate'
-      }
-
-      const listResponse = await actionWebInvoke(taxRateActionUrl, headers, { operation: 'LIST', limit: 1000 })
-      
-      if (listResponse.statusCode !== 200 || !listResponse.body?.data) {
-        throw new Error('Failed to fetch tax rates from Extension')
-      }
-
-      const taxRates = listResponse.body.data || []
-      addLog(`Found ${taxRates.length} tax rates in Extension`, 'info')
-      setProgress(40)
-
-      addLog('Syncing to Magento...', 'info')
-      setProgress(50)
-
-      // Sync each tax rate to Magento using create-tax-rate or update-tax-rate
-      let synced = 0
-      let failed = 0
-      const errors = []
-
-      for (let i = 0; i < taxRates.length; i++) {
-        const rate = taxRates[i]
-        const progressPercent = 50 + Math.floor((i / taxRates.length) * 40)
-        setProgress(progressPercent)
-
-        try {
-          addLog(`Syncing ${rate.tax_identifier || rate.code || `Rate ${i + 1}`}...`, 'info')
-
-          // Use create-tax-rate or update-tax-rate action
-          let syncActionUrl
-          if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-            syncActionUrl = props.runtime.getActionUrl(rate.magento_tax_rate_id ? 'update-tax-rate' : 'create-tax-rate')
-          } else if (allActions[rate.magento_tax_rate_id ? 'update-tax-rate' : 'create-tax-rate']) {
-            syncActionUrl = allActions[rate.magento_tax_rate_id ? 'update-tax-rate' : 'create-tax-rate']
-          } else {
-            syncActionUrl = `https://3676633-taxbycity-stage.adobeioruntime.net/api/v1/web/tax-by-city/${rate.magento_tax_rate_id ? 'update-tax-rate' : 'create-tax-rate'}`
-          }
-
-          const syncParams = {
-            taxRate: {
-              tax_country_id: rate.tax_country_id,
-              tax_region_id: rate.tax_region_id,
-              tax_postcode: rate.tax_postcode || '*',
-              rate: rate.rate,
-              code: rate.code || rate.tax_identifier,
-              city: rate.city,
-              zip_is_range: rate.zip_is_range || false,
-              zip_from: rate.zip_from,
-              zip_to: rate.zip_to
-            },
-            region: 'amer'
-          }
-
-          if (rate.magento_tax_rate_id) {
-            syncParams._id = rate._id || rate.id
-            syncParams.taxRate.id = rate.magento_tax_rate_id
-          }
-
-          const syncResponse = await actionWebInvoke(syncActionUrl, headers, syncParams)
-
-          if (syncResponse.statusCode === 200 || syncResponse.statusCode === 201) {
-            synced++
-            addLog(`✓ Successfully synced ${rate.tax_identifier || rate.code || `Rate ${i + 1}`}`, 'success')
-          } else {
-            failed++
-            const errorMsg = syncResponse.body?.message || 'Unknown error'
-            errors.push({ rateId: rate.tax_identifier || rate.code, error: errorMsg })
-            addLog(`✗ Failed to sync ${rate.tax_identifier || rate.code || `Rate ${i + 1}`}: ${errorMsg}`, 'error')
-          }
-        } catch (err) {
-          failed++
-          errors.push({ rateId: rate.tax_identifier || rate.code, error: err.message })
-          addLog(`✗ Error syncing ${rate.tax_identifier || rate.code || `Rate ${i + 1}`}: ${err.message}`, 'error')
-        }
-      }
-
-      setProgress(100)
-      addLog(`Sync completed: ${synced} synced, ${failed} failed`, synced > 0 ? 'success' : 'error')
-
-      setSyncResult({
-        success: synced > 0,
-        message: `Synced ${synced} tax rates to Magento${failed > 0 ? `, ${failed} failed` : ''}`,
-        synced,
-        failed,
-        total: taxRates.length,
-        errors: errors.length > 0 ? errors : undefined
-      })
-
-      if (synced > 0) {
-        setSuccess(true)
-      }
-      if (failed > 0) {
-        setError(`${failed} tax rates failed to sync`)
-      }
-
-      const historyEntry = {
-        timestamp: new Date().toISOString(),
-        mode: 'extension-to-magento',
-        result: {
-          synced,
-          failed,
-          total: taxRates.length
-        },
-        status: synced > 0 ? (failed > 0 ? 'partial' : 'success') : 'error'
-      }
-      const updatedHistory = [historyEntry, ...syncHistory].slice(0, 20)
-      setSyncHistory(updatedHistory)
-      localStorage.setItem('taxByCitySyncHistory', JSON.stringify(updatedHistory))
-
-    } catch (err) {
-      addLog(`Error: ${err.message}`, 'error')
-      setError(`Sync failed: ${err.message}`)
-      setSyncResult(null)
-      setProgress(0)
-      
-      const historyEntry = {
-        timestamp: new Date().toISOString(),
-        mode: 'extension-to-magento',
-        result: { error: err.message },
-        status: 'error'
-      }
-      const updatedHistory = [historyEntry, ...syncHistory].slice(0, 20)
-      setSyncHistory(updatedHistory)
-      localStorage.setItem('taxByCitySyncHistory', JSON.stringify(updatedHistory))
-    } finally {
-      setSyncing(false)
-      setSyncingDirection(null)
     }
   }
 
@@ -378,7 +296,7 @@ const Sync = (props) => {
             <Flex direction="column" gap="size-300">
               <Heading level={2} marginTop="size-0">Sync Tax Rates</Heading>
               <Text size="M" UNSAFE_style={{ color: '#6b7280' }}>
-                Sync tax rates between Magento and Extension. Choose the direction of sync.
+                Pull tax rates from Magento into App Builder (sync-tax-rates).
               </Text>
 
               {(!magentoSettings.commerceDomain || !props.ims?.token) && (
@@ -394,39 +312,35 @@ const Sync = (props) => {
                     {!magentoSettings.commerceDomain && !props.ims?.token 
                       ? '⚠️ Please configure Commerce Domain in Configuration page and ensure you are logged in to Adobe.'
                       : !magentoSettings.commerceDomain 
-                        ? '⚠️ Please configure Commerce Domain in Configuration page.'
+                        ? 'ℹ️ Commerce domain is not saved in Configuration. Magento → Extension will use MAGENTO_COMMERCE_DOMAIN / MAGENTO_INSTANCE_ID from the deployed action environment when set.'
                         : '⚠️ IMS token not available. Please ensure you are logged in to Adobe.'}
                   </Text>
                 </View>
               )}
 
               <Flex direction="row" gap="size-200" wrap>
-                <Button 
-                  variant="primary" 
-                  onPress={handleSyncFromMagento}
-                  isDisabled={syncing}
-                  UNSAFE_style={{
-                    backgroundColor: syncingDirection === 'magento-to-extension' ? '#059669' : '#0066cc',
-                    borderColor: syncingDirection === 'magento-to-extension' ? '#059669' : '#0066cc',
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSyncFromMagento()
+                  }}
+                  disabled={syncing}
+                  aria-busy={syncing}
+                  style={{
+                    backgroundColor: syncing ? '#059669' : '#0066cc',
+                    border: `1px solid ${syncing ? '#059669' : '#0066cc'}`,
                     color: '#fff',
-                    minWidth: '220px'
+                    minWidth: '220px',
+                    padding: '10px 16px',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: syncing ? 'not-allowed' : 'pointer',
+                    opacity: syncing ? 0.85 : 1
                   }}
                 >
-                  {syncing && syncingDirection === 'magento-to-extension' ? 'Syncing...' : 'Magento to Extension Sync'}
-                </Button>
-                <Button 
-                  variant="primary" 
-                  onPress={handleSyncToMagento}
-                  isDisabled={syncing}
-                  UNSAFE_style={{
-                    backgroundColor: syncingDirection === 'extension-to-magento' ? '#059669' : '#0066cc',
-                    borderColor: syncingDirection === 'extension-to-magento' ? '#059669' : '#0066cc',
-                    color: '#fff',
-                    minWidth: '220px'
-                  }}
-                >
-                  {syncing && syncingDirection === 'extension-to-magento' ? 'Syncing...' : 'Extension to Magento Sync'}
-                </Button>
+                  {syncing ? 'Syncing...' : 'Magento to Extension Sync'}
+                </button>
               </Flex>
 
               {syncing && (
@@ -441,13 +355,27 @@ const Sync = (props) => {
                     <Flex direction="row" alignItems="center" gap="size-200">
                       <ProgressCircle isIndeterminate aria-label="Syncing..." size="S" />
                       <Text>
-                        {syncingDirection === 'magento-to-extension' 
-                          ? 'Syncing tax rates from Magento to Extension...' 
-                          : 'Syncing tax rates from Extension to Magento...'}
+                        Syncing tax rates from Magento to Extension (sync-tax-rates)…
                       </Text>
                     </Flex>
+
+                    <View width="100%">
+                      {magentoSyncIndeterminate ? (
+                        <ProgressBar
+                          label="Calling sync-tax-rates (Magento → App Builder)…"
+                          isIndeterminate
+                          UNSAFE_style={{ width: '100%' }}
+                        />
+                      ) : (
+                        <ProgressBar
+                          label="Magento → Extension"
+                          value={progress}
+                          UNSAFE_style={{ width: '100%' }}
+                        />
+                      )}
+                    </View>
                     
-                    {/* Progress Bar */}
+                    {/* Progress Bar (numeric) */}
                     <View>
                       <Flex direction="row" alignItems="center" gap="size-100" marginBottom="size-50">
                         <Text size="S" UNSAFE_style={{ fontWeight: 600 }}>
@@ -581,73 +509,96 @@ const Sync = (props) => {
             </Flex>
           </Well>
 
-          {/* Sync History */}
-          {syncHistory.length > 0 && (
-            <Well>
-              <Flex direction="column" gap="size-200">
-                <Heading level={2} marginTop="size-0">Sync History</Heading>
-                <Text size="S" UNSAFE_style={{ color: '#6b7280' }}>
-                  Recent sync operations (last 20)
+          {/* Sync History — always visible; loads last 20 from list-sync-history */}
+          <Well>
+            <Flex direction="column" gap="size-200">
+              <Heading level={2} marginTop="size-0">Sync History</Heading>
+              <Text size="S" UNSAFE_style={{ color: '#6b7280' }}>
+                Last 20 sync runs from App Builder (list-sync-history). Refreshes when you open this page.
+              </Text>
+
+              {historyLoading && (
+                <Flex direction="row" alignItems="center" gap="size-150" paddingY="size-100">
+                  <ProgressCircle size="S" isIndeterminate aria-label="Loading sync history" />
+                  <Text size="S">Loading history…</Text>
+                </Flex>
+              )}
+
+              {!historyLoading && historyError && (
+                <Text size="S" UNSAFE_style={{ color: '#b45309' }}>
+                  {historyError}
                 </Text>
-                
+              )}
+
+              {!historyLoading && !historyError && syncHistory.length === 0 && (
+                <Text size="S" UNSAFE_style={{ color: '#6b7280' }}>
+                  No sync history yet. Run a sync above to create records.
+                </Text>
+              )}
+
+              {!historyLoading && syncHistory.length > 0 && (
                 <TableView aria-label="Sync History" width="100%">
                   <TableHeader>
-                    <Column>Date & Time</Column>
+                    <Column>Date &amp; Time</Column>
                     <Column>Mode</Column>
                     <Column>Status</Column>
-                    <Column>Synced</Column>
+                    <Column>Sync</Column>
                     <Column>Failed</Column>
                     <Column>Total</Column>
                   </TableHeader>
                   <TableBody>
-                    {syncHistory.map((entry, index) => (
-                      <Row key={index}>
-                        <Cell>
-                          <Text size="S">
-                            {new Date(entry.timestamp).toLocaleString()}
-                          </Text>
-                        </Cell>
-                        <Cell>
-                          <Text size="S" UNSAFE_style={{ textTransform: 'capitalize' }}>
-                            {entry.mode}
-                          </Text>
-                        </Cell>
-                        <Cell>
-                          <StatusLight 
-                            variant={
-                              entry.status === 'success' ? 'positive' : 
-                              entry.status === 'error' ? 'negative' : 
-                              'warning'
-                            }
-                            size="S"
-                          >
-                            {entry.status === 'success' ? 'Success' : 
-                             entry.status === 'error' ? 'Error' : 
-                             'Partial'}
-                          </StatusLight>
-                        </Cell>
-                        <Cell>
-                          <Text size="S">
-                            {entry.result?.synced || 0}
-                          </Text>
-                        </Cell>
-                        <Cell>
-                          <Text size="S">
-                            {entry.result?.failed || 0}
-                          </Text>
-                        </Cell>
-                        <Cell>
-                          <Text size="S">
-                            {entry.result?.total || 0}
-                          </Text>
-                        </Cell>
-                      </Row>
-                    ))}
+                    {syncHistory.map((entry, index) => {
+                      const synced = entry.synced ?? entry.result?.synced ?? 0
+                      const failed = entry.failed ?? entry.result?.failed ?? 0
+                      const total = entry.total ?? entry.result?.total ?? synced + failed
+                      const ts = entry.timestamp || entry.created_at
+                      const rowKey =
+                        entry._id != null ? String(entry._id) : `${ts || 'row'}-${index}`
+                      return (
+                        <Row key={rowKey}>
+                          <Cell>
+                            <Text size="S">
+                              {ts ? new Date(ts).toLocaleString() : '—'}
+                            </Text>
+                          </Cell>
+                          <Cell>
+                            <Text size="S">{formatModeLabel(entry.mode)}</Text>
+                          </Cell>
+                          <Cell>
+                            <StatusLight
+                              variant={
+                                entry.status === 'success'
+                                  ? 'positive'
+                                  : entry.status === 'error'
+                                    ? 'negative'
+                                    : 'warning'
+                              }
+                              size="S"
+                            >
+                              {entry.status === 'success'
+                                ? 'Success'
+                                : entry.status === 'error'
+                                  ? 'Error'
+                                  : 'Partial'}
+                            </StatusLight>
+                          </Cell>
+                          <Cell>
+                            <Text size="S">{synced}</Text>
+                          </Cell>
+                          <Cell>
+                            <Text size="S">{failed}</Text>
+                          </Cell>
+                          <Cell>
+                            <Text size="S">{total}</Text>
+                          </Cell>
+                        </Row>
+                      )
+                    })}
                   </TableBody>
                 </TableView>
-              </Flex>
-            </Well>
-          )}
+              )}
+            </Flex>
+          </Well>
 
           {/* Information Section */}
           <Well>
@@ -655,22 +606,13 @@ const Sync = (props) => {
               <Heading level={2} marginTop="size-0">How Sync Works</Heading>
               <Flex direction="column" gap="size-150">
                 <Text size="S">
-                  <strong>1. Authentication:</strong> Uses Adobe IMS OAuth tokens automatically. Your App Builder app authenticates with Commerce SaaS using your Adobe ID credentials. No manual tokens or passwords needed.
+                  <strong>1. Action:</strong> The sync-tax-rates web action reads Magento tax rates and upserts them into App Builder Database by tax identifier.
                 </Text>
                 <Text size="S">
-                  <strong>2. Data Retrieval:</strong> Tax rates are fetched from App Builder storage (tax-data action).
+                  <strong>2. Configuration:</strong> Commerce domain and instance can come from Configuration or from MAGENTO_COMMERCE_DOMAIN / MAGENTO_INSTANCE_ID on the deployed action.
                 </Text>
                 <Text size="S">
-                  <strong>3. Format Conversion:</strong> Tax rates are converted to Adobe Commerce REST API format.
-                </Text>
-                <Text size="S">
-                  <strong>4. Sync:</strong> Each tax rate is created or updated in Commerce via REST API using IMS OAuth authentication.
-                </Text>
-                <Text size="S">
-                  <strong>5. City Information:</strong> Since Commerce doesn't have a native city field, city information is stored in the tax rate title (e.g., "City Tax: Los Angeles, CA, US").
-                </Text>
-                <Text size="S" UNSAFE_style={{ color: '#dc2626', fontWeight: 600 }}>
-                  <strong>Note:</strong> Ensure your App Builder app has Adobe Commerce API access configured in Adobe Developer Console with "Tax" resource permissions.
+                  <strong>3. History:</strong> Each run is recorded in Sync History (list-sync-history).
                 </Text>
               </Flex>
             </Flex>

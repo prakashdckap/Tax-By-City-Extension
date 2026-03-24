@@ -1,8 +1,0 @@
-{
-  "name": "calculate-tax-rate",
-  "version": "1.0.0",
-  "main": "index.js",
-  "dependencies": {
-    "bson": "^5.5.1"
-  }
-}

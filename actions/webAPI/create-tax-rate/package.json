@@ -1,12 +1,10 @@
 {
-  "name": "delete-tax-rate-webapi",
+  "name": "create-tax-rate-webapi",
   "version": "1.0.0",
-  "description": "Delete tax rate — Web API (Magento + ABDB)",
   "main": "index.js",
   "dependencies": {
     "@adobe/aio-lib-core-auth": "^1.1.0",
     "@adobe/aio-lib-db": "^0.2.0-beta.1",
-    "axios": "^1.6.0",
-    "bson": "^6.10.0"
+    "axios": "^1.6.0"
   }
 }

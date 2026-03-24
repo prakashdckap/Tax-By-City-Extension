@@ -79,7 +79,8 @@ const Settings = (props) => {
       // Try to load config, but if actions aren't web-accessible, use defaults
       const headers = {
         authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
+        'x-gw-ims-org-id': props.ims.org,
+        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
       }
 
       let actionUrl
@@ -106,27 +107,7 @@ const Settings = (props) => {
         }
       }
 
-      // If we can't load from action, check if tax-rate action works (to verify backend is accessible)
-      let testActionUrl
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        testActionUrl = props.runtime.getActionUrl('tax-rate')
-      } else if (allActions['tax-rate']) {
-        testActionUrl = allActions['tax-rate']
-      } else if (allActions['tax-by-city/tax-rate']) {
-        testActionUrl = allActions['tax-by-city/tax-rate']
-      }
-
-      if (testActionUrl) {
-        try {
-          const testResponse = await actionWebInvoke(testActionUrl, headers, { operation: 'LIST' })
-          if (testResponse.statusCode === 200) {
-            setConfigStatus('connected')
-            return
-          }
-        } catch (e) {
-          // Backend actions not accessible
-        }
-      }
+    
 
       // Default: actions exist but may not be web-accessible
       setConfigStatus('partial')
@@ -152,7 +133,8 @@ const Settings = (props) => {
     try {
       const headers = {
         authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
+        'x-gw-ims-org-id': props.ims.org,
+        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
       }
 
       let actionUrl
@@ -459,14 +441,7 @@ const Settings = (props) => {
                   isDisabled={loading}
                 >
                   {loading ? 'Saving...' : 'Save Configuration'}
-                </Button>
-                <Button 
-                  variant="secondary" 
-                  onPress={handleTestConnection}
-                  isDisabled={loading}
-                >
-                  {loading ? 'Testing...' : 'Test Connection'}
-                </Button>
+                </Button>                
               </ButtonGroup>
             </Flex>
           </Form>

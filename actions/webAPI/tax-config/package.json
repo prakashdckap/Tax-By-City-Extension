@@ -1,0 +1,10 @@
+{
+  "name": "tax-config-webapi",
+  "version": "1.0.0",
+  "description": "Tax configuration — Web API (ABDB)",
+  "main": "index.js",
+  "dependencies": {
+    "@adobe/aio-lib-core-auth": "^1.1.0",
+    "@adobe/aio-lib-db": "^0.2.0-beta.1"
+  }
+}

@@ -724,10 +724,11 @@ const TaxRateManager = (props) => {
         actionUrl = 'https://3676633-taxbycity-stage.adobeio-static.net/api/v1/web/tax-by-city/tax-rate'
       }
 
-      // Headers for web action (Bearer token for IMS auth)
+      // Headers for web action (Bearer + namespace for ABDB-backed web APIs)
       const headers = {
         'x-gw-ims-org-id': props.ims.org,
         'authorization': `Bearer ${props.ims.token}`,
+        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage',
         'Content-Type': 'application/json'
       }
 
@@ -816,7 +817,8 @@ const TaxRateManager = (props) => {
 
       const headers = {
         authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
+        'x-gw-ims-org-id': props.ims.org,
+        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
       }
 
       // For updates, check for duplicates in the frontend first (client-side validation)
@@ -1090,7 +1092,8 @@ const TaxRateManager = (props) => {
     try {
       const headers = {
         authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
+        'x-gw-ims-org-id': props.ims.org,
+        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
       }
 
       // Call list-tax-rates DIRECTLY with GET ?limit=0 to get ALL records (no 20 limit)
@@ -1289,7 +1292,8 @@ const TaxRateManager = (props) => {
     try {
       const headers = {
         authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
+        'x-gw-ims-org-id': props.ims.org,
+        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
       }
 
       // Get action URL - use same pattern as create/update actions
@@ -1540,21 +1544,6 @@ const TaxRateManager = (props) => {
               }}
             >
               {loading ? 'Reloading...' : 'Reload from Database'}
-            </Button>
-            <Button 
-              variant="primary" 
-              onPress={() => setShowForm(true)}
-              UNSAFE_style={{ 
-                backgroundColor: '#eb5202',
-                borderColor: '#eb5202',
-                color: '#fff',
-                minWidth: '160px',
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: 600
-              }}
-            >
-              Add New Tax Rule
             </Button>
           </ButtonGroup>
         </Flex>

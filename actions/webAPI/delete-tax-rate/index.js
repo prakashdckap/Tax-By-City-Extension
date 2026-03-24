@@ -1,287 +1,337 @@
 /**
- * Delete Tax Rate - Calls delete-tax-rate API internally
- * POST /delete-tax-rate
- * Deletes tax rate from App Builder database
+ * Delete tax rate (Web API) — auth via ../lib/auth-runtime.js (same as create-tax-rate).
+ * Deletes from Magento then ABDB (legacy delete-tax-rate behavior).
+ * POST body: { id | _id, region? }. No list pagination; id targets one document.
  */
 
 const axios = require('axios');
+const libDb = require('@adobe/aio-lib-db');
+const { ObjectId } = require('bson');
+const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
 
-async function main(params) {
-  
+const COLLECTION_NAME = 'tax_rates';
+
+/* --------------------------------------------------------------------------
+ * MAGENTO (params + env, same as create-tax-rate webAPI)
+ * -------------------------------------------------------------------------- */
+function getMagentoConfig(params = {}) {
+  const p = (k) => (params[k] != null ? params[k] : process.env[k]);
+  const commerceDomain = p('MAGENTO_COMMERCE_DOMAIN');
+  const instanceId = p('MAGENTO_INSTANCE_ID');
+  const clientId = p('ADOBE_CLIENT_ID');
+  const clientSecret = p('ADOBE_CLIENT_SECRET');
+  const tokenUrl = p('ADOBE_TOKEN_URL');
+  const scope = p('ADOBE_SCOPE');
+  const accessToken = p('MAGENTO_ACCESS_TOKEN');
+
+  if (!commerceDomain || !clientId || !clientSecret) {
+    throw new Error('Missing Magento / Adobe config: set MAGENTO_COMMERCE_DOMAIN, ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET');
+  }
+
+  return {
+    commerceDomain,
+    instanceId: instanceId || '',
+    clientId,
+    clientSecret,
+    tokenUrl: tokenUrl || 'https://ims-na1.adobelogin.com/ims/token/v3',
+    scope:
+      scope ||
+      'AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api',
+    accessToken
+  };
+}
+
+async function generateMagentoAccessToken(config) {
+  const response = await axios.post(config.tokenUrl, null, {
+    params: {
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      grant_type: 'client_credentials',
+      scope: config.scope
+    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+  return response.data.access_token;
+}
+
+async function getMagentoAccessToken(config) {
+  return config.accessToken || generateMagentoAccessToken(config);
+}
+
+async function initDbWithCtx(dbCtx, region = DEFAULT_REGION) {
+  const { bearerToken, namespace } = dbCtx;
+  const db = await libDb.init({ token: bearerToken, region, ow: { namespace } });
+  const client = await db.connect();
+  const collection = await client.collection(COLLECTION_NAME);
+  return { client, collection };
+}
+
+async function deleteFromMagento(taxIdentifier, params = {}) {
+  if (!taxIdentifier) {
+    return { success: true, skipped: true };
+  }
+
+  const config = getMagentoConfig(params);
+  const token = await getMagentoAccessToken(config);
+  const url = `https://${config.commerceDomain}/${config.instanceId}/V1/taxRates/${encodeURIComponent(String(taxIdentifier))}`;
+
   try {
-    // Handle OPTIONS preflight request for CORS (Adobe I/O Runtime handles CORS automatically for web actions)
-    const method = (params["__ow_method"] || params.method || 'POST').toUpperCase();
-    if (method === 'OPTIONS') {
-      return {
-        statusCode: 200,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: {}
-      };
-    }
-
-    // Handle POST requests
-    if (method !== 'POST') {
-      return {
-        statusCode: 405,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: {
-          status: 'Error',
-          message: 'Method not allowed. Only POST requests are supported.'
-        }
-      };
-    }
-
-    // Log incoming params for debugging
-    console.log('webAPI delete-tax-rate - Received params:', JSON.stringify({
-      method: params["__ow_method"],
-      hasBody: !!params["__ow_body"],
-      bodyType: typeof params["__ow_body"],
-      id: params.id,
-      _id: params._id,
-      hasQuery: !!params["__ow_query"]
-    }, null, 2));
-
-    // Parse request body
-    let requestBody = {};
-    if (params["__ow_body"]) {
-      try {
-        // If body is base64 encoded, decode it
-        if (typeof params["__ow_body"] === 'string') {
-          requestBody = JSON.parse(Buffer.from(params["__ow_body"], 'base64').toString());
-        } else {
-          requestBody = params["__ow_body"];
-        }
-      } catch (e) {
-        // If not base64, try parsing directly
-        try {
-          requestBody = typeof params["__ow_body"] === 'string' 
-            ? JSON.parse(params["__ow_body"]) 
-            : params["__ow_body"];
-        } catch (e2) {
-          requestBody = params["__ow_body"];
-        }
-      }
-    }
-    
-    // Also check params directly (for web actions, params might be passed directly)
-    if (params.id || params._id) {
-      requestBody.id = requestBody.id || params.id || params._id;
-    }
-    if (params.region) {
-      requestBody.region = requestBody.region || params.region;
-    }
-    
-    // Also check query parameters
-    const queryParams = params["__ow_query"] || {};
-    if (typeof queryParams === 'string') {
-      const urlParams = new URLSearchParams(queryParams);
-      for (const [key, value] of urlParams.entries()) {
-        if (!requestBody[key]) {
-          requestBody[key] = value;
-        }
-      }
-    } else if (typeof queryParams === 'object') {
-      Object.assign(requestBody, queryParams);
-    }
-    
-    console.log('webAPI delete-tax-rate - Parsed requestBody:', JSON.stringify(requestBody, null, 2));
-
-    // Validate required fields
-    if (!requestBody.id && !requestBody._id) {
-      return {
-        statusCode: 400,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: {
-          status: 'Error',
-          message: 'id or _id is required in request body'
-        }
-      };
-    }
-
-    // Call delete-tax-rate API internally - using exact format as specified
-    try {
-      // Use the delete-tax-rate-action (which is the actual delete implementation)
-      // This is configured in app.config.yaml as delete-tax-rate-action
-      const deleteTaxRateUrl = 'https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/tax-by-city/delete-tax-rate-action?blocking=true&result=true';
-      
-      // Log which URL we're using and request body
-      console.log('webAPI delete-tax-rate - Calling action:', deleteTaxRateUrl);
-      console.log('webAPI delete-tax-rate - Request body:', JSON.stringify({ id: requestBody.id || requestBody._id }, null, 2));
-      
-      // Prepare request with id and optional region
-      const data = JSON.stringify({
-        id: requestBody.id || requestBody._id,
-        region: requestBody.region || 'amer'
-      });
-
-      const config = {
-        method: 'post',
-        maxBodyLength: Infinity,
-        url: deleteTaxRateUrl,
-        headers: { 
-          'Content-Type': 'application/json', 
-          'Authorization': 'Basic YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg='
-        },
-        data: data
-      };
-
-      const response = await axios.request(config);
-      
-      // Extract the response data - when calling with ?result=true&blocking=true,
-      // response.data contains the action's return value which is { statusCode, headers, body }
-      let responseData = response.data;
-      
-      // Log the full response for debugging
-      console.log('Delete tax rate response:', JSON.stringify(responseData, null, 2));
-      
-      // Check if the response contains an error
-      if (responseData && responseData.body) {
-        // If body has an error status, return it with appropriate status code
-        if (responseData.body.status === 'Error') {
-          // Preserve the original status code (404, 400, etc.)
-          const statusCode = responseData.statusCode || 400;
-          return {
-            statusCode: statusCode,
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: responseData.body
-          };
-        }
-        responseData = responseData.body;
-      } else if (responseData && typeof responseData === 'object' && responseData.statusCode) {
-        // If it has statusCode, it's the full response format - preserve it
-        const statusCode = responseData.statusCode;
-        responseData = responseData.body || { status: 'Success', message: 'Tax rate deleted successfully' };
-        
-        // If the original response had an error status code, preserve it
-        if (statusCode !== 200) {
-          return {
-            statusCode: statusCode,
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: responseData
-          };
-        }
-      }
-      
-      // Ensure body is always a plain object (not array, not null)
-      if (!responseData || typeof responseData !== 'object' || Array.isArray(responseData)) {
-        responseData = Array.isArray(responseData) 
-          ? { status: 'Success', data: responseData }
-          : (responseData || { status: 'Success', message: 'Tax rate deleted successfully' });
-      }
-      
-      // Return the response in correct web action format
-      return {
-        statusCode: 200,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: responseData
-      };
-    } catch (apiError) {
-      console.error('Error calling delete-tax-rate API:', apiError);
-      const errorDetails = {
-        message: apiError.message || String(apiError),
-        status: apiError.response?.status,
-        statusText: apiError.response?.statusText,
-        data: apiError.response?.data
-      };
-      console.error('Error details:', JSON.stringify(errorDetails, null, 2));
-      
-      return {
-        statusCode: apiError.response?.status || 500,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: {
-          status: 'Error',
-          message: 'Failed to delete tax rate',
-          error: errorDetails
-        }
-      };
-    }
-  } catch (error) {
-    console.error('Error in delete-tax-rate:', error);
-    return {
-      statusCode: 500,
+    await axios.delete(url, {
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
-      },
+      }
+    });
+    return { success: true, deleted: true };
+  } catch (error) {
+    console.error('Magento delete error:', error.response?.data || error.message);
+    const magentoError = new Error(
+      `Magento delete failed with status ${error.response?.status || 'unknown'}. ` +
+        `Details: ${JSON.stringify(error.response?.data || error.message)}. URL: ${url}`
+    );
+    magentoError.statusCode = error.response?.status || 500;
+    magentoError.magentoResponse = error.response?.data;
+    throw magentoError;
+  }
+}
+
+async function findTaxRateById(taxRateId, region, params, dbCtx) {
+  let client;
+  try {
+    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region);
+    client = dbClient;
+
+    let objectId;
+    try {
+      objectId = new ObjectId(taxRateId);
+    } catch (error) {
+      throw new Error(`Invalid tax rate ID format: ${error.message}`);
+    }
+
+    const taxRate = await collection.findOne({ _id: objectId });
+    return taxRate || null;
+  } catch (error) {
+    if (error.message && error.message.includes('Document not found')) {
+      return null;
+    }
+    if (error && (error.name === 'DbError' || (error.message && error.message.includes('Database')))) {
+      if (error.message.includes('not found') || error.message.includes('Document not found')) {
+        return null;
+      }
+      throw new Error(`Database error: ${error.message}`);
+    }
+    throw error;
+  } finally {
+    if (client) {
+      await client.close();
+    }
+  }
+}
+
+async function deleteTaxRateById(taxRateId, region, params, dbCtx) {
+  let client;
+  try {
+    const taxRate = await findTaxRateById(taxRateId, region, params, dbCtx);
+
+    if (!taxRate) {
+      return {
+        success: false,
+        deletedCount: 0,
+        message: 'Tax rate not found',
+        magento: { success: true, skipped: true }
+      };
+    }
+
+    let magentoResult = { success: true, skipped: true };
+    const magentoId =
+      taxRate.magento_tax_rate_id || taxRate.magento_id || taxRate.id || null;
+
+    if (magentoId) {
+      try {
+        magentoResult = await deleteFromMagento(magentoId, params);
+      } catch (magentoError) {
+        console.error('Magento delete failed, continuing with DB delete:', magentoError.message);
+        magentoResult = { success: false, error: magentoError.message };
+      }
+    } else if (taxRate.tax_identifier) {
+      try {
+        magentoResult = await deleteFromMagento(taxRate.tax_identifier, params);
+      } catch (magentoError) {
+        console.error('Magento delete failed (tax_identifier), continuing with DB delete:', magentoError.message);
+        magentoResult = { success: false, error: magentoError.message };
+      }
+    }
+
+    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region);
+    client = dbClient;
+
+    let objectId;
+    try {
+      objectId = new ObjectId(taxRateId);
+    } catch (error) {
+      throw new Error(`Invalid tax rate ID format: ${error.message}`);
+    }
+
+    const result = await collection.deleteOne({ _id: objectId });
+
+    if (result.deletedCount === 0) {
+      return {
+        success: false,
+        deletedCount: 0,
+        message: 'Tax rate not found in database',
+        magento: magentoResult
+      };
+    }
+
+    return {
+      success: true,
+      deletedCount: result.deletedCount,
+      magento: magentoResult
+    };
+  } catch (error) {
+    if (error.message && (error.message.includes('not found') || error.message.includes('Document not found'))) {
+      return {
+        success: false,
+        deletedCount: 0,
+        message: 'Tax rate not found',
+        magento: { success: true, skipped: true }
+      };
+    }
+    if (error && (error.name === 'DbError' || (error.message && error.message.includes('Database')))) {
+      throw new Error(`Database error: ${error.message}`);
+    }
+    throw error;
+  } finally {
+    if (client) {
+      await client.close();
+    }
+  }
+}
+
+function parseDeleteBody(params) {
+  let body = null;
+
+  if (params.id || params._id) {
+    body = { id: params.id || params._id, region: params.region || DEFAULT_REGION };
+  } else if (params.__ow_body) {
+    const bodyData = params.__ow_body;
+    if (typeof bodyData === 'object' && !Array.isArray(bodyData)) {
+      body = bodyData;
+    } else if (typeof bodyData === 'string') {
+      try {
+        body = JSON.parse(Buffer.from(bodyData, 'base64').toString('utf8'));
+      } catch {
+        try {
+          body = JSON.parse(bodyData);
+        } catch (e2) {
+          throw new Error('Invalid JSON in request body: ' + e2.message);
+        }
+      }
+    }
+  }
+
+  return body;
+}
+
+async function runDeleteFlow(params, dbCtx) {
+  const body = parseDeleteBody(params);
+
+  let taxRateId = body?.id || body?._id || params.id || params._id;
+  let region = body?.region || params.region || DEFAULT_REGION;
+
+  if (params.__ow_query && typeof params.__ow_query === 'string') {
+    const q = new URLSearchParams(params.__ow_query);
+    if (q.has('id')) taxRateId = taxRateId || q.get('id');
+    if (q.has('_id')) taxRateId = taxRateId || q.get('_id');
+    if (q.has('region')) region = q.get('region') || region;
+  }
+
+  if (!taxRateId) {
+    return {
+      statusCode: 400,
+      headers: CORS,
       body: {
         status: 'Error',
-        message: 'Internal server error',
+        message: 'id or _id parameter is required'
+      }
+    };
+  }
+
+  const result = await deleteTaxRateById(taxRateId, region, params, dbCtx);
+
+  if (result.success) {
+    return {
+      statusCode: 200,
+      headers: CORS,
+      body: {
+        status: 'Success',
+        message: 'Tax rate deleted successfully from database and Magento',
+        deletedCount: result.deletedCount,
+        magento: result.magento
+      }
+    };
+  }
+
+  return {
+    statusCode: 404,
+    headers: CORS,
+    body: {
+      status: 'Error',
+      message: result.message || 'Tax rate not found',
+      deletedCount: result.deletedCount
+    }
+  };
+}
+
+async function main(params) {
+  const method = String(params.__ow_method || params.method || 'POST').toUpperCase();
+  if (method === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        ...CORS,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-gw-ims-org-id, x-runtime-namespace',
+        'Access-Control-Max-Age': '86400'
+      },
+      body: {}
+    };
+  }
+
+  if (method !== 'POST') {
+    return {
+      statusCode: 405,
+      headers: CORS,
+      body: { status: 'Error', message: 'Method not allowed. Use POST.' }
+    };
+  }
+
+  const authResult = await resolveAuthAndNamespace(params);
+  if (authResult.error) {
+    const e = authResult.error;
+    return {
+      statusCode: e.statusCode,
+      headers: { ...CORS, ...(e.statusCode === 401 ? { 'WWW-Authenticate': 'Basic realm="Tax API"' } : {}) },
+      body: e.body
+    };
+  }
+
+  const dbCtx = { bearerToken: authResult.accessToken, namespace: authResult.namespace };
+
+  try {
+    return await runDeleteFlow(params, dbCtx);
+  } catch (error) {
+    console.error('delete-tax-rate (webAPI):', error);
+    return {
+      statusCode: 500,
+      headers: CORS,
+      body: {
+        status: 'Error',
+        message: 'Error deleting tax rate',
         error: error.message
       }
     };
   }
 }
 
-// Wrap main to ensure proper response format for web actions
-async function wrappedMain(params) {
-  try {
-    const result = await main(params);
-    
-    // Ensure result is always a valid web action response
-    if (!result || typeof result !== 'object') {
-      return {
-        statusCode: 500,
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: {
-          status: 'Error',
-          message: 'Invalid response format from action'
-        }
-      };
-    }
-    
-    // Ensure all required fields exist
-    // Merge headers (Adobe I/O Runtime handles CORS automatically for web actions)
-    const finalResult = {
-      statusCode: typeof result.statusCode === 'number' ? result.statusCode : 200,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(result.headers || {})
-      },
-      body: result.body || {}
-    };
-    
-    // Ensure Content-Type is always present
-    if (!finalResult.headers['Content-Type']) {
-      finalResult.headers['Content-Type'] = 'application/json';
-    }
-    
-    // Ensure body is always an object
-    if (!finalResult.body || typeof finalResult.body !== 'object' || Array.isArray(finalResult.body)) {
-      finalResult.body = Array.isArray(finalResult.body) 
-        ? { status: 'Success', data: finalResult.body }
-        : (finalResult.body || { status: 'Success' });
-    }
-    
-    return finalResult;
-  } catch (error) {
-    console.error('Error in wrappedMain:', error);
-    return {
-      statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: {
-        status: 'Error',
-        message: error.message || 'Internal server error'
-      }
-    };
-  }
-}
-
-exports.main = wrappedMain;
+exports.main = main;

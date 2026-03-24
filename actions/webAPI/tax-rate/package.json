@@ -1,9 +1,11 @@
 {
-  "name": "tax-rate",
+  "name": "tax-rate-webapi",
   "version": "1.0.0",
-  "description": "Tax rate action",
   "main": "index.js",
   "dependencies": {
-    "axios": "^1.6.0"
+    "@adobe/aio-lib-core-auth": "^1.1.0",
+    "@adobe/aio-lib-db": "^0.2.0-beta.1",
+    "axios": "^1.6.0",
+    "bson": "^6.7.0"
   }
 }

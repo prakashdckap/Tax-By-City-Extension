@@ -1,7 +1,7 @@
 {
-  "name": "delete-tax-rate-webapi",
+  "name": "update-tax-rate-webapi",
   "version": "1.0.0",
-  "description": "Delete tax rate — Web API (Magento + ABDB)",
+  "description": "Update tax rate — Web API (Magento + ABDB)",
   "main": "index.js",
   "dependencies": {
     "@adobe/aio-lib-core-auth": "^1.1.0",

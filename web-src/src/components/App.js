@@ -16,6 +16,49 @@ import Sync from './Sync'
 function App (props) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [ims, setIms] = useState(() => props.ims || {})
+
+  useEffect(() => {
+    setIms(props.ims || {})
+  }, [props.ims?.token, props.ims?.org, props.ims?.profile])
+
+  useEffect(() => {
+    const rt = props.runtime
+    if (!rt || typeof rt.on !== 'function') return
+
+    const onConfiguration = ({ imsOrg, imsToken, imsProfile, locale }) => {
+      console.log('configuration change', { imsOrg, imsToken, locale })
+      setIms((prev) => ({
+        ...prev,
+        org: imsOrg != null ? imsOrg : prev.org,
+        token: imsToken != null ? imsToken : prev.token,
+        profile: imsProfile != null ? imsProfile : prev.profile,
+        user:
+          imsProfile != null
+            ? {
+                name:
+                  [imsProfile.firstName, imsProfile.lastName].filter(Boolean).join(' ').trim() ||
+                  imsProfile.email ||
+                  prev?.user?.name ||
+                  'User'
+              }
+            : prev.user
+      }))
+    }
+
+    const onHistory = ({ type, path }) => {
+      console.log('history change', { type, path })
+    }
+
+    rt.on('configuration', onConfiguration)
+    rt.on('history', onHistory)
+    return () => {
+      if (typeof rt.off === 'function') {
+        rt.off('configuration', onConfiguration)
+        rt.off('history', onHistory)
+      }
+    }
+  }, [props.runtime])
 
   useEffect(() => {
     const handleResize = () => {
@@ -31,17 +74,7 @@ function App (props) {
   }, [])
 
   console.log('runtime object:', props.runtime)
-  console.log('ims object:', props.ims)
-
-  // use exc runtime event handlers
-  // respond to configuration change events (e.g. user switches org)
-  props.runtime.on('configuration', ({ imsOrg, imsToken, locale }) => {
-    console.log('configuration change', { imsOrg, imsToken, locale })
-  })
-  // respond to history change events
-  props.runtime.on('history', ({ type, path }) => {
-    console.log('history change', { type, path })
-  })
+  console.log('ims object:', ims)
 
   return (
     <ErrorBoundary onError={onError} FallbackComponent={fallbackComponent}>
@@ -197,10 +230,10 @@ function App (props) {
             >
               <Routes>
                 <Route path='/' element={<Home />} />
-                <Route path='/dashboard' element={<Dashboard runtime={props.runtime} ims={props.ims} />}/>
-                <Route path='/configuration' element={<Settings runtime={props.runtime} ims={props.ims} />}/>
-                <Route path='/tax-rates' element={<TaxRateManager runtime={props.runtime} ims={props.ims} />}/>
-                <Route path='/sync' element={<Sync runtime={props.runtime} ims={props.ims} />}/>
+                <Route path='/dashboard' element={<Dashboard runtime={props.runtime} ims={ims} />}/>
+                <Route path='/configuration' element={<Settings runtime={props.runtime} ims={ims} />}/>
+                <Route path='/tax-rates' element={<TaxRateManager runtime={props.runtime} ims={ims} />}/>
+                <Route path='/sync' element={<Sync runtime={props.runtime} ims={ims} />}/>
               </Routes>
             </View>
           </Grid>
