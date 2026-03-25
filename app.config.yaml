@@ -14,8 +14,15 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              RUNTIME_USERNAME: b43be220-d54d-4315-96f4-9d0be1b4ad3c
+              RUNTIME_PASSWORD: ekK2UmlM0WgFf6bgj5rUwp26va7O5s7sTJLPJS8O2y0uf2X8f628kw0V42jqGJq8
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+              ADOBE_SCOPE: adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage
             annotations:
-              require-adobe-auth: true
+              # false: gateway allows request; action validates Basic auth (same as hello-api)
+              require-adobe-auth: false
               include-ims-credentials: true
               final: true
           tax-config:
@@ -132,7 +139,7 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              # Runtime API credentials: same as save-tax-rate; Basic auth must match these (action security)
+              # Must match client Basic auth (Runtime namespace:auth_key)
               RUNTIME_USERNAME: b43be220-d54d-4315-96f4-9d0be1b4ad3c
               RUNTIME_PASSWORD: ekK2UmlM0WgFf6bgj5rUwp26va7O5s7sTJLPJS8O2y0uf2X8f628kw0V42jqGJq8
               ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
@@ -140,6 +147,7 @@ application:
               ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
               ADOBE_SCOPE: adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage
             annotations:
+              # false = gateway allows Basic auth through; action code validates Basic vs RUNTIME_* above
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
