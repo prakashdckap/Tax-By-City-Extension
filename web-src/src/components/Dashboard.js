@@ -15,14 +15,7 @@ import {
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
-
-/**
- * Same default as actions/webAPI/list-tax-rates when RUNTIME_* is not bound.
- * Used only for dashboard count when there is no IMS session (e.g. static URL / embedded browsers).
- * Override with config.json "runtimeBasicAuthBase64" if your deploy uses different Runtime credentials.
- */
-const DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64 =
-  'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg='
+import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
 
 const SYNC_CONNECTED = 'Connected'
 const SYNC_CONNECTED_PREVIEW = 'Connected (runtime auth)'
@@ -51,16 +44,9 @@ const Dashboard = (props) => {
   const loadStats = async () => {
     setLoading(true)
 
-    const namespace = allActions.runtimeNamespace || '3676633-taxbycity-stage'
-
     let actionUrl
-    if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-      actionUrl = props.runtime.getActionUrl('list-tax-rates')
-    } else if (allActions['list-tax-rates']) {
-      actionUrl = allActions['list-tax-rates']
-    } else if (allActions['tax-by-city/list-tax-rates']) {
-      actionUrl = allActions['tax-by-city/list-tax-rates']
-    } else {
+    actionUrl = getConfiguredActionUrl(props.runtime, 'list-tax-rates')
+    if (!actionUrl) {
       setLoading(false)
       setStats({
         totalTaxRates: 0,
@@ -73,19 +59,12 @@ const Dashboard = (props) => {
     const listParams = { limit: 0 }
 
     const buildHeaders = () => {
-      if (props.ims?.token) {
-        return {
-          authorization: `Bearer ${props.ims.token}`,
-          'x-gw-ims-org-id': props.ims.org,
-          'x-runtime-namespace': namespace
-        }
-      }
-      const basic =
-        allActions.runtimeBasicAuthBase64 || DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64
-      return {
-        authorization: `Basic ${basic}`,
-        'x-runtime-namespace': namespace
-      }
+      return buildActionHeaders({
+        ims: props.ims,
+        runtime: props.runtime,
+        preferredAction: 'list-tax-rates',
+        basicAuthBase64: allActions.runtimeBasicAuthBase64
+      })
     }
 
     try {

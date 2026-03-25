@@ -5,6 +5,12 @@
  */
 
 const axios = require('axios');
+const {
+  getMagentoImsOrgId,
+  getRuntimeApiHost,
+  getRuntimeAuthBase64,
+  getRuntimeNamespace
+} = require('../webAPI/lib/config');
 
 async function main(params) {
   // Handle OPTIONS preflight request for CORS
@@ -62,9 +68,9 @@ async function main(params) {
                   queryParams.token || params.token;
     }
 
-    const orgId = params["__ow_headers"]?.["x-gw-ims-org-id"] || queryParams.orgId || params.orgId || 'C116239B68225A790A495C96@AdobeOrg';
-    const basicAuth = queryParams.runtimeBasicAuth || params.runtimeBasicAuth || 
-                     'Basic YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
+    const orgId = params["__ow_headers"]?.["x-gw-ims-org-id"] || queryParams.orgId || params.orgId || getMagentoImsOrgId(params);
+    const runtimeAuthBase64 = getRuntimeAuthBase64(params);
+    const basicAuth = queryParams.runtimeBasicAuth || params.runtimeBasicAuth || (runtimeAuthBase64 ? `Basic ${runtimeAuthBase64}` : '');
 
     // Validate required parameters
     if (!commerceDomain) {
@@ -156,7 +162,7 @@ async function main(params) {
     const config = {
       method: 'post',
       maxBodyLength: Infinity,
-      url: 'https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/manage-tax?result=true&blocking=true',
+      url: `${getRuntimeApiHost(params)}/api/v1/namespaces/${encodeURIComponent(getRuntimeNamespace(params))}/actions/manage-tax?result=true&blocking=true`,
       headers: { 
         'x-gw-ims-org-id': orgId, 
         'authorization': basicAuth,

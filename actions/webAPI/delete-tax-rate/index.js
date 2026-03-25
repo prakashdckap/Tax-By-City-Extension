@@ -6,26 +6,31 @@
 
 const axios = require('axios');
 const libDb = require('@adobe/aio-lib-db');
+const { generateAccessToken: aioGenerateAccessToken } = require('@adobe/aio-lib-core-auth');
 const { ObjectId } = require('bson');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
+const { getMagentoScope, getMagentoTokenUrl, getTaxRatesCollection } = require('../lib/config');
 
-const COLLECTION_NAME = 'tax_rates';
+const COLLECTION_NAME = getTaxRatesCollection();
 
 /* --------------------------------------------------------------------------
  * MAGENTO (params + env, same as create-tax-rate webAPI)
  * -------------------------------------------------------------------------- */
 function getMagentoConfig(params = {}) {
   const p = (k) => (params[k] != null ? params[k] : process.env[k]);
-  const commerceDomain = p('MAGENTO_COMMERCE_DOMAIN');
-  const instanceId = p('MAGENTO_INSTANCE_ID');
-  const clientId = p('ADOBE_CLIENT_ID');
-  const clientSecret = p('ADOBE_CLIENT_SECRET');
+  const commerceDomain = String(p('MAGENTO_COMMERCE_DOMAIN') || p('commerceDomain') || '')
+    .trim()
+    .replace(/\.admin\.commerce\.adobe\.com$/i, '.api.commerce.adobe.com');
+  const instanceId = p('MAGENTO_INSTANCE_ID') || p('instanceId');
+  const clientId = p('ADOBE_CLIENT_ID') || p('IMS_OAUTH_S2S_CLIENT_ID');
+  const clientSecret = p('ADOBE_CLIENT_SECRET') || p('IMS_OAUTH_S2S_CLIENT_SECRET');
+  const orgId = p('ADOBE_ORG_ID') || p('IMS_OAUTH_S2S_ORG_ID');
   const tokenUrl = p('ADOBE_TOKEN_URL');
-  const scope = p('ADOBE_SCOPE');
-  const accessToken = p('MAGENTO_ACCESS_TOKEN');
+  const scope = p('ADOBE_SCOPE') || p('IMS_OAUTH_S2S_SCOPES');
+  const accessToken = p('MAGENTO_ACCESS_TOKEN') || p('accessToken');
 
   if (!commerceDomain || !clientId || !clientSecret) {
-    throw new Error('Missing Magento / Adobe config: set MAGENTO_COMMERCE_DOMAIN, ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET');
+    throw new Error('Missing Magento / Adobe config: set commerceDomain or MAGENTO_COMMERCE_DOMAIN, plus ADOBE_CLIENT_ID/ADOBE_CLIENT_SECRET (or IMS_OAUTH_S2S_CLIENT_ID/SECRET).');
   }
 
   return {
@@ -33,29 +38,48 @@ function getMagentoConfig(params = {}) {
     instanceId: instanceId || '',
     clientId,
     clientSecret,
-    tokenUrl: tokenUrl || 'https://ims-na1.adobelogin.com/ims/token/v3',
-    scope:
-      scope ||
-      'AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api',
+    orgId,
+    tokenUrl: tokenUrl || getMagentoTokenUrl(params),
+    scope: scope || getMagentoScope(params),
     accessToken
   };
 }
 
 async function generateMagentoAccessToken(config) {
-  const response = await axios.post(config.tokenUrl, null, {
-    params: {
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      grant_type: 'client_credentials',
-      scope: config.scope
-    },
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-  });
-  return response.data.access_token;
+  const merged = {
+    clientId: config.clientId,
+    clientSecret: config.clientSecret
+  };
+
+  if (config.scope != null) {
+    if (Array.isArray(config.scope)) {
+      merged.scopes = config.scope;
+    } else if (typeof config.scope === 'string') {
+      try {
+        merged.scopes = JSON.parse(config.scope);
+      } catch {
+        merged.scopes = config.scope.split(/[,\s]+/).filter(Boolean);
+      }
+    }
+  }
+
+  if (config.orgId) merged.orgId = config.orgId;
+  if (merged.orgId == null && process.env.ADOBE_ORG_ID) merged.orgId = process.env.ADOBE_ORG_ID;
+  if (merged.orgId == null && process.env.IMS_OAUTH_S2S_ORG_ID) merged.orgId = process.env.IMS_OAUTH_S2S_ORG_ID;
+
+  const tokenRes = await aioGenerateAccessToken(merged);
+  return tokenRes?.access_token;
 }
 
 async function getMagentoAccessToken(config) {
-  return config.accessToken || generateMagentoAccessToken(config);
+  try {
+    const serviceToken = await generateMagentoAccessToken(config);
+    if (serviceToken) return serviceToken;
+  } catch (error) {
+    console.warn('delete-tax-rate: service token generation failed, falling back to explicit accessToken', error?.message || error);
+  }
+  if (config.accessToken) return config.accessToken;
+  throw new Error('Unable to obtain Magento access token');
 }
 
 async function initDbWithCtx(dbCtx, region = DEFAULT_REGION) {
@@ -235,6 +259,7 @@ function parseDeleteBody(params) {
 
 async function runDeleteFlow(params, dbCtx) {
   const body = parseDeleteBody(params);
+  const mergedParams = { ...params, ...body };
 
   let taxRateId = body?.id || body?._id || params.id || params._id;
   let region = body?.region || params.region || DEFAULT_REGION;
@@ -257,7 +282,7 @@ async function runDeleteFlow(params, dbCtx) {
     };
   }
 
-  const result = await deleteTaxRateById(taxRateId, region, params, dbCtx);
+  const result = await deleteTaxRateById(taxRateId, region, mergedParams, dbCtx);
 
   if (result.success) {
     return {

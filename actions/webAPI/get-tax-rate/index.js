@@ -12,10 +12,11 @@
 
 const libDb = require('@adobe/aio-lib-db');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
+const { getParamOrEnv, getTaxRatesCollection } = require('../lib/config');
 
-const COLLECTION_NAME = 'tax_rates';
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 1000;
+const COLLECTION_NAME = getTaxRatesCollection();
+const DEFAULT_LIMIT = Number.parseInt(getParamOrEnv({}, 'DEFAULT_LIMIT', ''), 10);
+const MAX_LIMIT = Number.parseInt(getParamOrEnv({}, 'MAX_LIMIT', ''), 10);
 
 async function initDbWithCtx(dbCtx, region = DEFAULT_REGION) {
   const { bearerToken, namespace } = dbCtx;

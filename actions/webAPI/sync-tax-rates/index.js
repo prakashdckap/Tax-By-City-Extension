@@ -2,10 +2,11 @@ const axios = require('axios');
 const libDb = require('@adobe/aio-lib-db');
 const { generateAccessToken } = require('@adobe/aio-lib-core-auth');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime');
+const { getSyncHistoryCollection, getTaxRatesCollection } = require('../lib/config');
 const { findTaxRates, insertTaxRate, updateTaxRate } = require('../tax-rate/db-helper');
 
-const TAX_RATES_COLLECTION = 'tax_rates';
-const SYNC_HISTORY_COLLECTION = 'sync_history';
+const TAX_RATES_COLLECTION = getTaxRatesCollection();
+const SYNC_HISTORY_COLLECTION = getSyncHistoryCollection();
 
 function parseBody(params) {
   if (params.__ow_body) {
@@ -154,7 +155,11 @@ async function main(params) {
     const payload = { ...parseQuery(params), ...parseBody(params), ...params };
     const auth = await resolveAuthAndNamespace(params);
     if (auth.error) return { statusCode: auth.error.statusCode, headers: CORS, body: auth.error.body };
-    const dbCtx = { bearerToken: auth.accessToken, namespace: auth.namespace };
+    const dbCtx = {
+      bearerToken: auth.accessToken,
+      namespace: auth.namespace,
+      collectionName: TAX_RATES_COLLECTION
+    };
 
     const magentoConfig = await getMagentoConfig(payload);
     const magentoRates = await fetchMagentoTaxRates(magentoConfig);

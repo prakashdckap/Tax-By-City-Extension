@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { getRuntimeApiHost, getRuntimeAuthBase64, getRuntimeNamespace } = require('../lib/config');
 
 async function main(params) {
   console.log('[DEBUG] ========== save-tax-rate START ==========');
@@ -49,7 +50,7 @@ async function main(params) {
       // Body might be passed directly in params
       requestBody = {
         taxRate: params.taxRate || {},
-        region: params.region || 'amer'
+        region: params.region || process.env.DEFAULT_REGION || ''
       };
     }
     
@@ -77,10 +78,8 @@ async function main(params) {
     console.log('[DEBUG] Validation passed, preparing to call manage-tax-rate');
 
     // Generate Basic auth (same as working example)
-    const username = process.env.RUNTIME_USERNAME || 'b43be220-d54d-4315-96f4-9d0be1b4ad3c';
-    const password = process.env.RUNTIME_PASSWORD || 'ekK2UmlM0WgFf6bgj5rUwp26va7O5s7sTJLPJS8O2y0uf2X8f628kw0V42jqGJq8';
-    const credentials = Buffer.from(`${username}:${password}`).toString('base64');
-    const authHeader = `Basic ${credentials}`;
+    const runtimeAuthBase64 = getRuntimeAuthBase64(params);
+    const authHeader = runtimeAuthBase64 ? `Basic ${runtimeAuthBase64}` : null;
 
     // Call manage-tax-rate API (exactly like working example)
     const data = JSON.stringify(requestBody);
@@ -89,7 +88,7 @@ async function main(params) {
     const config = {
       method: 'post',
       maxBodyLength: Infinity,
-      url: 'https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/manage-tax-rate?result=true&blocking=true',
+      url: `${getRuntimeApiHost(params)}/api/v1/namespaces/${encodeURIComponent(getRuntimeNamespace(params))}/actions/manage-tax-rate?result=true&blocking=true`,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': authHeader

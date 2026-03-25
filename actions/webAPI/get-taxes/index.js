@@ -5,6 +5,12 @@
  */
 
 const axios = require('axios');
+const { getRuntimeApiHost, getRuntimeAuthBase64, getRuntimeNamespace } = require('../lib/config');
+
+function getRuntimeAuthHeader(params) {
+  const base64 = getRuntimeAuthBase64(params);
+  return base64 ? `Basic ${base64}` : null;
+}
 
 async function main(params) {
   try {
@@ -50,14 +56,30 @@ async function main(params) {
 
     // Call list-tax-rates API internally - pass limit=0 to get ALL records (no limit)
     try {
-      const listTaxRatesUrl = 'https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/list-tax-rates?result=true&blocking=true';
+      const namespace = getRuntimeNamespace(params);
+      const authHeader = getRuntimeAuthHeader(params);
+      if (!namespace || !authHeader) {
+        return {
+          statusCode: 500,
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: {
+            status: 'Error',
+            message: 'Runtime namespace/auth is not configured for get-taxes.'
+          }
+        };
+      }
+
+      const runtimeApiHost = getRuntimeApiHost(params);
+      const listTaxRatesUrl = `${runtimeApiHost}/api/v1/namespaces/${encodeURIComponent(namespace)}/actions/list-tax-rates?result=true&blocking=true`;
 
       const config = {
         method: 'post',
         maxBodyLength: Infinity,
         url: listTaxRatesUrl,
         headers: {
-          'Authorization': 'Basic YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=',
+          'Authorization': authHeader,
           'Content-Type': 'application/json'
         },
         data: { limit, page }

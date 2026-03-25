@@ -7,6 +7,7 @@
 import actionWebInvoke from './utils'
 import allActions from './config.json'
 import { getStatesForCountry } from './countries-states'
+import { getConfiguredActionUrl } from './runtimeConfig'
 
 /**
  * Fetch all tax rates from Magento
@@ -19,17 +20,9 @@ import { getStatesForCountry } from './countries-states'
 export const fetchTaxRatesFromMagento = async (commerceDomain, instanceId, accessToken, orgId) => {
   try {
     // Get manage-tax action URL (use magento-tax-rate action)
-    let actionUrl
-    if (allActions['manage-tax']) {
-      actionUrl = allActions['manage-tax']
-    } else if (allActions['tax-by-city/manage-tax']) {
-      actionUrl = allActions['tax-by-city/manage-tax']
-    } else if (allActions['magento-tax-rate']) {
-      actionUrl = allActions['magento-tax-rate']
-    } else {
-      // Fallback to direct action URL
-      actionUrl = 'https://adobeioruntime.net/api/v1/namespaces/3676633-taxbycity-stage/actions/manage-tax'
-    }
+    const actionUrl =
+      getConfiguredActionUrl(null, 'manage-tax') ||
+      getConfiguredActionUrl(null, 'magento-tax-rate')
 
     // Search for all tax rates (no filters = get all)
     // Use empty search criteria to get all tax rates

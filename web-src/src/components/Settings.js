@@ -23,6 +23,7 @@ import {
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
+import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
 
 const Settings = (props) => {
   const [loading, setLoading] = useState(false)
@@ -77,20 +78,13 @@ const Settings = (props) => {
   const loadConfiguration = async () => {
     try {
       // Try to load config, but if actions aren't web-accessible, use defaults
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org,
-        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
-      }
+      const headers = buildActionHeaders({
+        ims: props.ims,
+        runtime: props.runtime,
+        preferredAction: 'tax-config'
+      })
 
-      let actionUrl
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        actionUrl = props.runtime.getActionUrl('tax-config')
-      } else if (allActions['tax-config']) {
-        actionUrl = allActions['tax-config']
-      } else if (allActions['tax-by-city/tax-config']) {
-        actionUrl = allActions['tax-by-city/tax-config']
-      }
+      const actionUrl = getConfiguredActionUrl(props.runtime, 'tax-config')
 
       if (actionUrl) {
         try {
@@ -131,20 +125,13 @@ const Settings = (props) => {
     setSuccess(false)
 
     try {
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org,
-        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
-      }
+      const headers = buildActionHeaders({
+        ims: props.ims,
+        runtime: props.runtime,
+        preferredAction: 'tax-config'
+      })
 
-      let actionUrl
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        actionUrl = props.runtime.getActionUrl('tax-config')
-      } else if (allActions['tax-config']) {
-        actionUrl = allActions['tax-config']
-      } else if (allActions['tax-by-city/tax-config']) {
-        actionUrl = allActions['tax-by-city/tax-config']
-      }
+      const actionUrl = getConfiguredActionUrl(props.runtime, 'tax-config')
 
       if (actionUrl) {
         try {
@@ -196,24 +183,15 @@ const Settings = (props) => {
     setSuccess(false)
 
     try {
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org
-      }
+      const headers = buildActionHeaders({
+        ims: props.ims,
+        runtime: props.runtime,
+        preferredAction: 'tax-rate'
+      })
 
       // Test tax-rate action (skip tax-config as it has response format issues)
       // The tax-rate action is the main action used by the application
-      const baseUrl = props.runtime?.actionUrl || 'https://3676633-taxbycity-stage.adobeioruntime.net'
-      let dataActionUrl
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        dataActionUrl = props.runtime.getActionUrl('tax-rate')
-      } else if (allActions['tax-rate']) {
-        dataActionUrl = allActions['tax-rate']
-      } else if (allActions['tax-by-city/tax-rate']) {
-        dataActionUrl = allActions['tax-by-city/tax-rate']
-      } else {
-        dataActionUrl = `${baseUrl}/api/v1/web/tax-by-city/tax-rate`
-      }
+      const dataActionUrl = getConfiguredActionUrl(props.runtime, 'tax-rate')
 
       const dataResponse = await actionWebInvoke(dataActionUrl, headers, { operation: 'LIST' })
 
@@ -228,21 +206,12 @@ const Settings = (props) => {
     } catch (e) {
       // If tax-rate action works, consider it connected (tax-config has known issues)
       try {
-        const headers = {
-          authorization: `Bearer ${props.ims.token}`,
-          'x-gw-ims-org-id': props.ims.org
-        }
-        const baseUrl = props.runtime?.actionUrl || 'https://3676633-taxbycity-stage.adobeioruntime.net'
-        let dataActionUrl
-        if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-          dataActionUrl = props.runtime.getActionUrl('tax-rate')
-        } else if (allActions['tax-rate']) {
-          dataActionUrl = allActions['tax-rate']
-        } else if (allActions['tax-by-city/tax-rate']) {
-          dataActionUrl = allActions['tax-by-city/tax-rate']
-        } else {
-          dataActionUrl = `${baseUrl}/api/v1/web/tax-by-city/tax-rate`
-        }
+        const headers = buildActionHeaders({
+          ims: props.ims,
+          runtime: props.runtime,
+          preferredAction: 'tax-rate'
+        })
+        const dataActionUrl = getConfiguredActionUrl(props.runtime, 'tax-rate')
         const testResponse = await actionWebInvoke(dataActionUrl, headers, { operation: 'LIST' })
         if (testResponse.statusCode === 200) {
           setSuccess(true)

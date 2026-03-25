@@ -50,6 +50,11 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              DEFAULT_LIMIT: $DEFAULT_LIMIT
+              MAX_LIMIT: $MAX_LIMIT
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
+              APP_BUILDER_DB_URL_TEMPLATE: $APP_BUILDER_DB_URL_TEMPLATE
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
               RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
@@ -62,26 +67,33 @@ application:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
-          
           get-taxes:
             function: actions/webAPI/get-taxes/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
+              RUNTIME_API_HOST: $RUNTIME_API_HOST
+              RUNTIME_USERNAME: $RUNTIME_USERNAME
+              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
             annotations:
               require-adobe-auth: true
               include-ims-credentials: true
               final: true
-          
           save-tax-rate:
             function: actions/webAPI/save-tax-rate/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              RUNTIME_API_HOST: $RUNTIME_API_HOST
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
             annotations:
               require-adobe-auth: false
               final: true
@@ -91,8 +103,12 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
+              RUNTIME_API_HOST: $RUNTIME_API_HOST
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
               MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
               MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
               ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
@@ -110,8 +126,12 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
+              RUNTIME_API_HOST: $RUNTIME_API_HOST
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
               MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
               MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
               ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
@@ -129,8 +149,13 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              DEFAULT_LIMIT: $DEFAULT_LIMIT
+              MAX_LIMIT: $MAX_LIMIT
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
               ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
               ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
               ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
@@ -146,6 +171,11 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              RUNTIME_API_HOST: $RUNTIME_API_HOST
+              RUNTIME_USERNAME: $RUNTIME_USERNAME
+              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
+              ADOBE_ORG_ID: $ADOBE_ORG_ID
             annotations:
               require-adobe-auth: true
               include-ims-credentials: true
@@ -156,6 +186,9 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
+              APP_BUILDER_DB_URL_TEMPLATE: $APP_BUILDER_DB_URL_TEMPLATE
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
               ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
@@ -172,6 +205,8 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
               MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
@@ -191,6 +226,8 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
               MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
@@ -204,7 +241,6 @@ application:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
-          
           magento-tax-rate:
             function: actions/webAPI/magento-tax-rate/index.js
             web: 'yes'
@@ -217,6 +253,8 @@ application:
               MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
               MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
               MAGENTO_ENVIRONMENT_ID: $MAGENTO_ENVIRONMENT_ID
+              MAGENTO_API_KEY: $MAGENTO_API_KEY
+              MAGENTO_IMS_ORG_ID: $MAGENTO_IMS_ORG_ID
               API_KEY: $ADOBE_CLIENT_ID
               ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
               ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
@@ -228,6 +266,7 @@ application:
               MAGENTO_STORE_CODE: $MAGENTO_STORE_CODE
               MAGENTO_STORE_VIEW_CODE: $MAGENTO_STORE_VIEW_CODE
               MAGENTO_CUSTOMER_GROUP: $MAGENTO_CUSTOMER_GROUP
+              MAGENTO_DEFAULT_SKU: $MAGENTO_DEFAULT_SKU
             annotations:
               require-adobe-auth: false
               include-ims-credentials: true
@@ -238,6 +277,9 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
+              SYNC_HISTORY_COLLECTION: $SYNC_HISTORY_COLLECTION
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
               RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
@@ -258,6 +300,8 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              SYNC_HISTORY_COLLECTION: $SYNC_HISTORY_COLLECTION
               RUNTIME_USERNAME: $RUNTIME_USERNAME
               RUNTIME_PASSWORD: $RUNTIME_PASSWORD
               RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
@@ -270,7 +314,6 @@ application:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
-
 modules:
   admin-ui:
     web:

@@ -6,22 +6,31 @@
 
 const axios = require('axios');
 const { CORS, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
+const {
+  getDefaultSku,
+  getMagentoApiKey,
+  getMagentoGraphqlUrl,
+  getMagentoImsOrgId,
+  getMagentoStoreCode,
+  getMagentoStoreViewCode,
+  getMagentoWebsiteCode
+} = require('../lib/config');
 
-const FALLBACK_SKUS = [{ sku: 'WS12-M-Orange', quantity: 1 }];
+const FALLBACK_SKUS = [];
 
 function pget(params, k) {
   return params[k] != null ? params[k] : process.env[k];
 }
 
 function getGraphqlUrl(params = {}) {
-  const explicit = pget(params, 'GRAPHQL_URL');
+  const explicit = getMagentoGraphqlUrl(params);
   if (explicit) return explicit;
   const domain = pget(params, 'MAGENTO_COMMERCE_DOMAIN');
   const instanceId = pget(params, 'MAGENTO_INSTANCE_ID');
   if (domain && instanceId) {
     return `https://${domain}/${instanceId}/graphql`;
   }
-  return 'https://na1-sandbox.api.commerce.adobe.com/GMBkaBQSumFG4qaxU86h3L/graphql';
+  return '';
 }
 
 function getEnvironmentIdFromUrl(graphqlUrl) {
@@ -36,14 +45,9 @@ function getEnvironmentIdFromUrl(graphqlUrl) {
 function getDefaultHeaders(params = {}) {
   const graphqlUrl = getGraphqlUrl(params);
   const apiKey =
-    pget(params, 'API_KEY') ||
-    pget(params, 'ADOBE_CLIENT_ID') ||
-    '02cacbf78e8b4e8d8cfe2f1eaa886c30';
+    getMagentoApiKey(params);
   const imsOrg =
-    pget(params, 'IMS_ORG_ID') ||
-    pget(params, 'ADOBE_ORG_ID') ||
-    pget(params, 'MAGENTO_ORG_ID') ||
-    'C116239B68225A790A495C96@AdobeOrg';
+    getMagentoImsOrgId(params);
   const envId =
     pget(params, 'MAGENTO_ENVIRONMENT_ID') || getEnvironmentIdFromUrl(graphqlUrl);
 
@@ -55,9 +59,9 @@ function getDefaultHeaders(params = {}) {
     ...(pget(params, 'MAGENTO_CUSTOMER_GROUP') && {
       'Magento-Customer-Group': pget(params, 'MAGENTO_CUSTOMER_GROUP')
     }),
-    'Magento-Website-Code': pget(params, 'MAGENTO_WEBSITE_CODE') || 'base',
-    'Magento-Store-Code': pget(params, 'MAGENTO_STORE_CODE') || 'main_website_store',
-    'Magento-Store-View-Code': pget(params, 'MAGENTO_STORE_VIEW_CODE') || 'default'
+    'Magento-Website-Code': getMagentoWebsiteCode(params),
+    'Magento-Store-Code': getMagentoStoreCode(params),
+    'Magento-Store-View-Code': getMagentoStoreViewCode(params)
   };
 }
 
@@ -383,7 +387,12 @@ async function runMagentoTaxFlow(params) {
   const cartId = existingCart
     ? String(existingCart).trim()
     : await createGuestCart(params);
-  const itemsToAdd = (await getOneProductSku(params, productOpts)) || FALLBACK_SKUS;
+  const itemsToAdd =
+    (await getOneProductSku(params, productOpts)) ||
+    (() => {
+      const sku = getDefaultSku(params);
+      return sku ? [{ sku, quantity: 1 }] : FALLBACK_SKUS;
+    })();
   await addProductsToCart(params, cartId, itemsToAdd);
   const cartWithShipping = await setShippingAddressesOnCart(params, cartId, address);
   const methods = cartWithShipping?.shipping_addresses?.[0]?.available_shipping_methods || [];

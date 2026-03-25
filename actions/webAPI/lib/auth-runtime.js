@@ -6,13 +6,14 @@
 const https = require('https');
 const crypto = require('crypto');
 const { generateAccessToken } = require('@adobe/aio-lib-core-auth');
+const {
+  getDefaultRegion,
+  getRuntimeApiHost,
+  getRuntimeAuthBase64,
+  getRuntimeNamespace
+} = require('./config');
 
-const DEFAULT_REGION = 'amer';
-const DEFAULT_RUNTIME_AUTH_BASE64 =
-  process.env.DEFAULT_RUNTIME_AUTH_BASE64 ||
-  'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
-
-const APIHOST = 'https://adobeioruntime.net';
+const DEFAULT_REGION = getDefaultRegion();
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -29,14 +30,7 @@ function secureCompare(a, b) {
 }
 
 function getExpectedBasicAuthBase64(params) {
-  const base64 = params.RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64;
-  if (base64 && typeof base64 === 'string' && base64.trim()) return base64.trim();
-  const username = (params.RUNTIME_USERNAME || process.env.RUNTIME_USERNAME || '').trim();
-  const password = (params.RUNTIME_PASSWORD || process.env.RUNTIME_PASSWORD || '').trim();
-  if (username && password) {
-    return Buffer.from(`${username}:${password}`, 'utf-8').toString('base64');
-  }
-  return DEFAULT_RUNTIME_AUTH_BASE64;
+  return getRuntimeAuthBase64(params) || null;
 }
 
 function normalizeImsParamsForToken(params) {
@@ -96,7 +90,7 @@ function getTokenFromGetDbTokenRaw(params) {
         const a = h.authorization || h.Authorization;
         return a && typeof a === 'string' && a.startsWith('Basic ') ? a.substring(6).trim() : null;
       })() ||
-      DEFAULT_RUNTIME_AUTH_BASE64;
+      getExpectedBasicAuthBase64(params);
     const clientId =
       params.ADOBE_CLIENT_ID ||
       process.env.ADOBE_CLIENT_ID ||
@@ -107,7 +101,9 @@ function getTokenFromGetDbTokenRaw(params) {
       process.env.IMS_OAUTH_S2S_CLIENT_SECRET;
     if (!clientId || !clientSecret) return resolve(null);
 
-    const ns = params.__OW_NAMESPACE || process.env.__OW_NAMESPACE || '3676633-taxbycity-stage';
+    const runtimeApiHost = getRuntimeApiHost(params);
+    const ns = getRuntimeNamespace(params);
+    if (!basicAuth || !runtimeApiHost || !ns) return resolve(null);
     const paths = [
       `/api/v1/namespaces/${encodeURIComponent(ns)}/actions/tax-by-city/get-db-token?result=true&blocking=true`,
       `/api/v1/namespaces/${encodeURIComponent(ns)}/actions/get-db-token?result=true&blocking=true`
@@ -116,7 +112,7 @@ function getTokenFromGetDbTokenRaw(params) {
 
     function tryPath(i) {
       if (i >= paths.length) return resolve(null);
-      const u = new URL(APIHOST + paths[i]);
+      const u = new URL(runtimeApiHost + paths[i]);
       const req = https.request(
         {
           hostname: u.hostname,
@@ -179,6 +175,7 @@ async function resolveAuthAndNamespace(params) {
   let namespace =
     params.__OW_NAMESPACE ||
     process.env.__OW_NAMESPACE ||
+    process.env.AIO_runtime_namespace ||
     params.__ow_headers?.['x-runtime-namespace'] ||
     params.__ow_headers?.['X-Runtime-Namespace'] ||
     '';

@@ -7,11 +7,16 @@
 
 const https = require('https');
 const crypto = require('crypto');
+const {
+  getDbServiceUrlTemplate,
+  getDefaultRegion,
+  getRuntimeAuthBase64,
+  getRuntimeNamespace,
+  getTaxRatesCollection
+} = require('../lib/config');
 
-const REGION = 'amer';
-const COLLECTION = 'tax_rates';
-const NAMESPACE = process.env.__OW_NAMESPACE || '3676633-taxbycity-stage';
-const DB_FIND_URL = `https://storage-database-${REGION}.app-builder.int.adp.adobe.io/v1/collection/${COLLECTION}/find`;
+const REGION = getDefaultRegion();
+const COLLECTION = getTaxRatesCollection();
 
 function httpsPost(url, headers, body) {
   return new Promise((resolve, reject) => {
@@ -46,8 +51,10 @@ function normalizeId(doc) {
   return out;
 }
 
-async function fetchTaxRates(accessToken, limit = 1000) {
-  const res = await httpsPost(DB_FIND_URL, { Authorization: `Bearer ${accessToken}`, 'x-runtime-namespace': NAMESPACE }, { filter: {}, options: { limit } });
+async function fetchTaxRates(accessToken, namespace, limit = 1000) {
+  const dbServiceUrlTemplate = getDbServiceUrlTemplate();
+  const dbFindUrl = `${dbServiceUrlTemplate.replace(/<region>/gi, String(REGION).toLowerCase())}/v1/collection/${encodeURIComponent(COLLECTION)}/find`;
+  const res = await httpsPost(dbFindUrl, { Authorization: `Bearer ${accessToken}`, 'x-runtime-namespace': namespace }, { filter: {}, options: { limit } });
   const data = res?.data;
   const rows = Array.isArray(data) ? data : (data?.cursor?.firstBatch || data?.documents || []);
   return rows.map(normalizeId);
@@ -77,17 +84,11 @@ function secureCompare(a, b) {
  * RUNTIME_AUTH_BASE64, or Base64(RUNTIME_USERNAME:RUNTIME_PASSWORD). These are the Runtime API credentials.
  */
 function getExpectedBasicAuthBase64(params) {
-  const base64 = params.RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64;
-  if (base64 && typeof base64 === 'string' && base64.trim()) return base64.trim();
-  const username = params.RUNTIME_USERNAME || process.env.RUNTIME_USERNAME;
-  const password = params.RUNTIME_PASSWORD || process.env.RUNTIME_PASSWORD;
-  if (username != null && password != null) {
-    return Buffer.from(`${String(username)}:${String(password)}`, 'utf-8').toString('base64');
-  }
-  return null;
+  return getRuntimeAuthBase64(params) || null;
 }
 
 async function main(params) {
+  const namespace = getRuntimeNamespace(params);
   try {
     const method = (params.__ow_method || params.method || 'GET').toUpperCase();
     if (method === 'OPTIONS') {
@@ -122,7 +123,7 @@ async function main(params) {
       token = (tokenResult && tokenResult.access_token) || null;
       if (token) {
         try {
-          tax_rates = await fetchTaxRates(token);
+          tax_rates = await fetchTaxRates(token, namespace);
         } catch (fetchErr) {
           tokenError = (fetchErr && fetchErr.message) || 'fetchTaxRates failed';
         }

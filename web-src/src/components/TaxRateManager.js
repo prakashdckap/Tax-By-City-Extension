@@ -37,6 +37,7 @@ import {
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
+import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
 import { countries, getStatesForCountry, getStateName } from '../countries-states'
 import { syncTaxRatesFromMagento } from '../syncService'
 import { prepareRegionForMagento } from '../regionMapper'
@@ -712,23 +713,15 @@ const TaxRateManager = (props) => {
 
       // Use tax-rate action (web action that supports CORS) which internally calls manage-tax
       // This avoids CORS issues since tax-rate is properly deployed as a web action
-      let actionUrl
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        actionUrl = props.runtime.getActionUrl('tax-rate')
-      } else if (allActions['tax-rate']) {
-        actionUrl = allActions['tax-rate']
-      } else if (allActions['tax-by-city/tax-rate']) {
-        actionUrl = allActions['tax-by-city/tax-rate']
-      } else {
-        // Fallback to web action URL format (supports CORS)
-        actionUrl = 'https://3676633-taxbycity-stage.adobeio-static.net/api/v1/web/tax-by-city/tax-rate'
-      }
+      const actionUrl = getConfiguredActionUrl(props.runtime, 'tax-rate')
 
       // Headers for web action (Bearer + namespace for ABDB-backed web APIs)
       const headers = {
-        'x-gw-ims-org-id': props.ims.org,
-        'authorization': `Bearer ${props.ims.token}`,
-        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage',
+        ...buildActionHeaders({
+          ims: props.ims,
+          runtime: props.runtime,
+          preferredAction: 'tax-rate'
+        }),
         'Content-Type': 'application/json'
       }
 
@@ -815,11 +808,11 @@ const TaxRateManager = (props) => {
         return
       }
 
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org,
-        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
-      }
+      const headers = buildActionHeaders({
+        ims: props.ims,
+        runtime: props.runtime,
+        preferredAction: 'create-tax-rate'
+      })
 
       // For updates, check for duplicates in the frontend first (client-side validation)
       // The backend will also check, but this provides immediate feedback
@@ -878,7 +871,10 @@ const TaxRateManager = (props) => {
       // Prepare request body
       const requestBody = {
         taxRate: taxRateData,
-        region: 'amer' // Default region
+        region: 'amer', // Default region
+        commerceDomain: magentoSettings.commerceDomain || undefined,
+        instanceId: magentoSettings.instanceId || undefined,
+        accessToken: props.ims?.token || undefined
       }
 
       // If updating, include the _id for MongoDB
@@ -887,19 +883,8 @@ const TaxRateManager = (props) => {
       }
 
       // Get action URL from config or runtime - use create-tax-rate or update-tax-rate endpoint
-      let actionUrl
       const actionName = isUpdate ? 'update-tax-rate' : 'create-tax-rate'
-      
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        actionUrl = props.runtime.getActionUrl(actionName)
-      } else if (allActions[actionName]) {
-        actionUrl = allActions[actionName]
-      } else if (allActions[`tax-by-city/${actionName}`]) {
-        actionUrl = allActions[`tax-by-city/${actionName}`]
-      } else {
-        // Fallback to web action URL format
-        actionUrl = `https://3676633-taxbycity-stage.adobeioruntime.net/api/v1/web/tax-by-city/${actionName}`
-      }
+      const actionUrl = getConfiguredActionUrl(props.runtime, actionName)
       
       if (actionUrl) {
         try {
@@ -1090,11 +1075,11 @@ const TaxRateManager = (props) => {
     }
 
     try {
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org,
-        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
-      }
+      const headers = buildActionHeaders({
+        ims: props.ims,
+        runtime: props.runtime,
+        preferredAction: 'list-tax-rates'
+      })
 
       // Call list-tax-rates DIRECTLY with GET ?limit=0 to get ALL records (no 20 limit)
       // Bypasses get-taxes so the limit is in the URL and always applied by list-tax-rates
@@ -1106,8 +1091,7 @@ const TaxRateManager = (props) => {
         actionUrl = allActions['tax-by-city/list-tax-rates']
         console.log('Using list-tax-rates URL from config:', actionUrl)
       } else {
-        const baseUrl = props.runtime?.actionUrl || 'https://3676633-taxbycity-stage.adobeioruntime.net'
-        actionUrl = `${baseUrl}/api/v1/web/tax-by-city/list-tax-rates`
+        actionUrl = getConfiguredActionUrl(props.runtime, 'list-tax-rates')
         console.log('Constructed list-tax-rates URL:', actionUrl)
       }
 
@@ -1290,26 +1274,15 @@ const TaxRateManager = (props) => {
     setError(null)
 
     try {
-      const headers = {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org,
-        'x-runtime-namespace': allActions.runtimeNamespace || '3676633-taxbycity-stage'
-      }
+      const headers = buildActionHeaders({
+        ims: props.ims,
+        runtime: props.runtime,
+        preferredAction: 'delete-tax-rate'
+      })
 
       // Get action URL - use same pattern as create/update actions
-      let actionUrl
       const actionName = 'delete-tax-rate'
-      
-      if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-        actionUrl = props.runtime.getActionUrl(actionName)
-      } else if (allActions[actionName]) {
-        actionUrl = allActions[actionName]
-      } else if (allActions[`tax-by-city/${actionName}`]) {
-        actionUrl = allActions[`tax-by-city/${actionName}`]
-      } else {
-        // Fallback to web action URL format (same as create/update)
-        actionUrl = `https://3676633-taxbycity-stage.adobeioruntime.net/api/v1/web/tax-by-city/${actionName}`
-      }
+      const actionUrl = getConfiguredActionUrl(props.runtime, actionName)
 
       // Prepare request body (same format as create/update - just id)
       const requestBody = { id: rateId }

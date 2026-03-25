@@ -1,0 +1,180 @@
+{
+  "project": {
+    "id": "4566206088345553099",
+    "name": "TaxByCity",
+    "title": "Tax By City",
+    "org": {
+      "id": "3676633",
+      "name": "Klizer Partner Sandbox",
+      "ims_org_id": "C116239B68225A790A495C96@AdobeOrg",
+      "details": {
+        "services": [
+          {
+            "name": "Adobe Express Embed SDK",
+            "code": "CCEmbedCompanionAPI",
+            "type": "adobeid"
+          },
+          {
+            "name": "AEM Assets Author API",
+            "code": "AEM Assets Author API",
+            "type": "adobeid"
+          },
+          {
+            "name": "Adobe Fusion",
+            "code": "Fusion-API",
+            "type": "adobeid"
+          },
+          {
+            "name": "Adobe Commerce as a Cloud Service",
+            "code": "ACCS-REST-API",
+            "type": "adobeid"
+          },
+          {
+            "name": "AEM CS Sites Content Management",
+            "code": "AEM CS Sites Content Management",
+            "type": "adobeid"
+          },
+          {
+            "name": "Lightroom Services",
+            "code": "LightroomPartnersSDK",
+            "type": "adobeid"
+          },
+          {
+            "name": "API Mesh for Adobe Developer App Builder",
+            "code": "GraphQLServiceSDK",
+            "type": "adobeid"
+          },
+          {
+            "name": "Frame.io API",
+            "code": "FrameioAPISDK",
+            "type": "adobeid"
+          },
+          {
+            "name": "PDF Embed API",
+            "code": "ViewSDK",
+            "type": "adobeid"
+          },
+          {
+            "name": "Adobe Commerce with Adobe ID",
+            "code": "AdobeCommerceWithAdobeID",
+            "type": "adobeid"
+          },
+          {
+            "name": "AEM Forms Delivery and Runtime API",
+            "code": "FormsDeliveryRuntimeSDK",
+            "type": "adobeid"
+          },
+          {
+            "name": "Asset Compute",
+            "code": "AssetComputeSDK",
+            "type": "entp"
+          },
+          {
+            "name": "I/O Management API",
+            "code": "AdobeIOManagementAPISDK",
+            "type": "entp"
+          },
+          {
+            "name": "Smart Content",
+            "code": "MCSmartContentServicesSDK",
+            "type": "entp"
+          },
+          {
+            "name": "Primetime Ad Insertion",
+            "code": "Ad Config Service",
+            "type": "entp"
+          },
+          {
+            "name": "App Builder Data Services",
+            "code": "AppBuilderDataServicesSDK",
+            "type": "entp"
+          },
+          {
+            "name": "Experience Cloud Setup Automation",
+            "code": "DxSetupAutomationSDK",
+            "type": "entp"
+          },
+          {
+            "name": "I/O Events",
+            "code": "CloudIntegrationSDK",
+            "type": "entp"
+          },
+          {
+            "name": "Adobe Commerce as a Cloud Service",
+            "code": "ACCS-REST-API",
+            "type": "entp"
+          },
+          {
+            "name": "Adobe Commerce Optimizer Ingestion",
+            "code": "ACO-Ingestion",
+            "type": "entp"
+          },
+          {
+            "name": "Adobe Commerce Optimizer Admin",
+            "code": "ACO-Admin",
+            "type": "entp"
+          },
+          {
+            "name": "Cloud Manager",
+            "code": "CloudManagerSDK",
+            "type": "entp"
+          },
+          {
+            "name": "Adobe Status API",
+            "code": "StatusAPISDK",
+            "type": "entp"
+          },
+          {
+            "name": "Globalization Content Service",
+            "code": "gcs-partner",
+            "type": "entp"
+          },
+          {
+            "name": "Adobe I/O Events for Adobe Commerce",
+            "code": "commerceeventing",
+            "type": "entp"
+          }
+        ]
+      }
+    },
+    "workspace": {
+      "id": "4566206088345583548",
+      "name": "Production",
+      "title": "Production",
+      "action_url": "https://3676633-taxbycity.adobeioruntime.net",
+      "app_url": "https://3676633-taxbycity.adobeio-static.net",
+      "details": {
+        "credentials": [
+          {
+            "id": "876492",
+            "name": "Credential_in_Tax_By_City_-_Production",
+            "integration_type": "oauth_server_to_server"
+          },
+          {
+            "id": "876494",
+            "name": "Project_1765779600988K",
+            "integration_type": "apikey"
+          }
+        ],
+        "services": [
+          {
+            "code": "ACCS-REST-API",
+            "name": "Adobe Commerce as a Cloud Service"
+          },
+          {
+            "code": "GraphQLServiceSDK",
+            "name": "API Mesh for Adobe Developer App Builder"
+          },
+          {
+            "code": "AppBuilderDataServicesSDK",
+            "name": "App Builder Data Services"
+          }
+        ],
+        "events": {
+          "registrations": []
+        },
+        "mesh": {}
+      }
+    }
+  }
+}

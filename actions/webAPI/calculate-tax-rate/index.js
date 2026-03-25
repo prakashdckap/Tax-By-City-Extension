@@ -5,10 +5,10 @@
 
 const https = require('https');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
+const { getDbServiceUrlTemplate, getTaxRatesCollection } = require('../lib/config');
 
-const COLLECTION_NAME = 'tax_rates';
-
-const DB_SERVICE_URL_TEMPLATE = 'https://storage-database-<region>.app-builder.int.adp.adobe.io';
+const COLLECTION_NAME = getTaxRatesCollection();
+const DB_SERVICE_URL_TEMPLATE = getDbServiceUrlTemplate();
 
 function dbFindWithBearerToken(namespace, region, bearerToken, collectionName, filter, options) {
   const baseUrl = DB_SERVICE_URL_TEMPLATE.replace(/<region>/gi, (region || DEFAULT_REGION).toLowerCase());

@@ -7,22 +7,38 @@
 
 const https = require('https');
 const crypto = require('crypto');
+const libDb = require('@adobe/aio-lib-db');
 const { generateAccessToken } = require('@adobe/aio-lib-core-auth');
-
-const DEFAULT_REGION = 'amer';
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 1000;
-const TAX_RATES_COLLECTION = process.env.TAX_RATES_COLLECTION || 'tax_rates';
-/** Same fallback as actions/list-tax-rates when RUNTIME_* env is not bound at deploy. */
-const DEFAULT_RUNTIME_AUTH_BASE64 =
-  process.env.DEFAULT_RUNTIME_AUTH_BASE64 ||
-  'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
 
 const CORS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'X-Content-Type-Options': 'nosniff'
 };
+
+function getRuntimeConfig(params = {}) {
+  const defaultRegion = String(params.DEFAULT_REGION || process.env.DEFAULT_REGION || '').trim();
+  const defaultLimit = Number.parseInt(params.DEFAULT_LIMIT || process.env.DEFAULT_LIMIT, 10);
+  const maxLimit = Number.parseInt(params.MAX_LIMIT || process.env.MAX_LIMIT, 10);
+  const taxRatesCollection = String(
+    params.TAX_RATES_COLLECTION || process.env.TAX_RATES_COLLECTION || ''
+  ).trim();
+
+  return {
+    defaultRegion,
+    defaultLimit,
+    maxLimit,
+    taxRatesCollection
+  };
+}
+
+function getConfigValidationError(config) {
+  if (!config.defaultRegion) return 'DEFAULT_REGION is not configured.';
+  if (Number.isNaN(config.defaultLimit)) return 'DEFAULT_LIMIT must be configured as an integer.';
+  if (Number.isNaN(config.maxLimit)) return 'MAX_LIMIT must be configured as an integer.';
+  if (!config.taxRatesCollection) return 'TAX_RATES_COLLECTION is not configured.';
+  return null;
+}
 
 function secureCompare(a, b) {
   if (a == null || b == null) return false;
@@ -35,12 +51,23 @@ function secureCompare(a, b) {
 function getExpectedBasicAuthBase64(params) {
   const base64 = params.RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64;
   if (base64 && typeof base64 === 'string' && base64.trim()) return base64.trim();
+
+  const aioRuntimeAuth = process.env.AIO_runtime_auth || '';
+  if (aioRuntimeAuth.trim()) {
+    const rawValue = aioRuntimeAuth.trim();
+    // `.env` may store runtime auth as `namespace:secret`; convert it to Basic auth format.
+    if (rawValue.includes(':')) {
+      return Buffer.from(rawValue, 'utf-8').toString('base64');
+    }
+    return rawValue;
+  }
+
   const username = (params.RUNTIME_USERNAME || process.env.RUNTIME_USERNAME || '').trim();
   const password = (params.RUNTIME_PASSWORD || process.env.RUNTIME_PASSWORD || '').trim();
   if (username && password) {
     return Buffer.from(`${username}:${password}`, 'utf-8').toString('base64');
   }
-  return DEFAULT_RUNTIME_AUTH_BASE64;
+  return null;
 }
 
 /** Map app.config ADOBE_* inputs to names @adobe/aio-lib-core-auth expects (orgId, clientId, clientSecret, scopes). */
@@ -122,7 +149,7 @@ function httpsPost(url, headers, body) {
   });
 }
 
-function parseParams(params) {
+function parseParams(params, config) {
   const method = String(params.__ow_method || params.method || 'get').toUpperCase();
   let query = {};
 
@@ -172,9 +199,9 @@ function parseParams(params) {
     }
   }
 
-  let limit = query.limit !== undefined && query.limit !== '' ? parseInt(query.limit, 10) : DEFAULT_LIMIT;
+  let limit = query.limit !== undefined && query.limit !== '' ? parseInt(query.limit, 10) : config.defaultLimit;
   let skip = query.skip !== undefined && query.skip !== '' ? parseInt(query.skip, 10) : 0;
-  const region = query.region || DEFAULT_REGION;
+  const region = query.region || config.defaultRegion;
 
   const pageVal = query.page !== undefined && query.page !== '' ? parseInt(query.page, 10) : NaN;
   if (!Number.isNaN(pageVal) && pageVal > 0 && limit > 0) {
@@ -182,14 +209,14 @@ function parseParams(params) {
     if (!explicitSkip) skip = (pageVal - 1) * limit;
   }
 
-  if (Number.isNaN(limit) || limit < 0 || limit > MAX_LIMIT) {
-    throw new Error(`limit must be 0 or between 1 and ${MAX_LIMIT}`);
+  if (Number.isNaN(limit) || limit < 0 || limit > config.maxLimit) {
+    throw new Error(`limit must be 0 or between 1 and ${config.maxLimit}`);
   }
   if (Number.isNaN(skip) || skip < 0) {
     throw new Error('skip must be a non-negative number');
   }
 
-  return { collectionName: TAX_RATES_COLLECTION, filter, sort, limit, skip, region };
+  return { collectionName: config.taxRatesCollection, filter, sort, limit, skip, region };
 }
 
 function normalizeDocuments(items) {
@@ -217,23 +244,49 @@ function normalizeDocuments(items) {
   });
 }
 
-async function dbFindWithBearerToken(namespace, region, bearerToken, collectionName, filter, findOptions) {
-  const reg = (region || DEFAULT_REGION).toLowerCase();
-  const baseUrl = `https://storage-database-${reg}.app-builder.int.adp.adobe.io/v1/collection/${encodeURIComponent(collectionName)}/find`;
-  const res = await httpsPost(
-    baseUrl,
-    {
-      Authorization: `Bearer ${bearerToken}`,
-      'x-runtime-namespace': namespace
-    },
-    { filter: filter || {}, options: findOptions || {} }
-  );
-  if (res.success && res.data !== undefined) return res.data;
-  throw new Error(res.message || 'Invalid DB response');
+async function dbFindWithBearerToken(config, namespace, region, bearerToken, collectionName, filter, findOptions) {
+  const resolvedRegion = String(region || config.defaultRegion || '').trim();
+  let client;
+  try {
+    const db = await libDb.init({ token: bearerToken, region: resolvedRegion, ow: { namespace } });
+    client = await db.connect();
+    const collection = await client.collection(collectionName);
+
+    let cursor = collection.find(filter || {});
+    if (findOptions?.sort && typeof findOptions.sort === 'object' && Object.keys(findOptions.sort).length) {
+      cursor = cursor.sort(findOptions.sort);
+    }
+    if (findOptions?.skip) {
+      cursor = cursor.skip(findOptions.skip);
+    }
+    if (findOptions?.limit) {
+      cursor = cursor.limit(findOptions.limit);
+    }
+
+    return await cursor.toArray();
+  } finally {
+    if (client) {
+      try {
+        await client.close();
+      } catch (closeErr) {
+        console.warn('list-tax-rates: client.close warning', closeErr?.message || closeErr);
+      }
+    }
+  }
 }
 
 async function main(params) {
   try {
+    const config = getRuntimeConfig(params);
+    const configError = getConfigValidationError(config);
+    if (configError) {
+      return {
+        statusCode: 500,
+        headers: CORS,
+        body: { status: 'Error', message: configError }
+      };
+    }
+
     const method = (params.__ow_method || params.method || 'GET').toUpperCase();
     if (method === 'OPTIONS') {
       return {
@@ -256,12 +309,13 @@ async function main(params) {
       };
     }
 
-    const { collectionName, filter, sort, limit, skip, region } = parseParams(params);
+    const { collectionName, filter, sort, limit, skip, region } = parseParams(params, config);
 
     const auth = params.__ow_headers?.authorization || params.__ow_headers?.Authorization;
     let namespace =
       params.__OW_NAMESPACE ||
       process.env.__OW_NAMESPACE ||
+      process.env.AIO_runtime_namespace ||
       params.__ow_headers?.['x-runtime-namespace'] ||
       params.__ow_headers?.['X-Runtime-Namespace'] ||
       '';
@@ -269,6 +323,16 @@ async function main(params) {
     if (auth && typeof auth === 'string' && auth.startsWith('Basic ')) {
       const providedBase64 = auth.slice(6).trim();
       const expectedBase64 = getExpectedBasicAuthBase64(params);
+      if (!expectedBase64) {
+        return {
+          statusCode: 500,
+          headers: CORS,
+          body: {
+            status: 'Error',
+            message: 'Runtime auth is not configured. Set RUNTIME_AUTH_BASE64, AIO_runtime_auth, or RUNTIME_USERNAME/RUNTIME_PASSWORD.'
+          }
+        };
+      }
       if (!secureCompare(providedBase64, expectedBase64)) {
         return {
           statusCode: 401,
@@ -352,7 +416,7 @@ async function main(params) {
 
     let raw;
     try {
-      raw = await dbFindWithBearerToken(namespace, region, accessToken, collectionName, filter, findOptions);
+      raw = await dbFindWithBearerToken(config, namespace, region, accessToken, collectionName, filter, findOptions);
     } catch (err) {
       let message = err.message || String(err);
       const statusCode =

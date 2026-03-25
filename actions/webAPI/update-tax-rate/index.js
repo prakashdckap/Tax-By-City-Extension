@@ -5,26 +5,31 @@
 
 const axios = require('axios');
 const libDb = require('@adobe/aio-lib-db');
+const { generateAccessToken: aioGenerateAccessToken } = require('@adobe/aio-lib-core-auth');
 const { ObjectId } = require('bson');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
+const { getMagentoScope, getMagentoTokenUrl, getTaxRatesCollection } = require('../lib/config');
 
-const COLLECTION_NAME = 'tax_rates';
+const COLLECTION_NAME = getTaxRatesCollection();
 
 /* --------------------------------------------------------------------------
  * MAGENTO CONFIG (params first, then env — same as create-tax-rate webAPI)
  * -------------------------------------------------------------------------- */
 function getMagentoConfig(params = {}) {
   const p = (k) => (params[k] != null ? params[k] : process.env[k]);
-  const commerceDomain = p('MAGENTO_COMMERCE_DOMAIN');
-  const instanceId = p('MAGENTO_INSTANCE_ID');
-  const clientId = p('ADOBE_CLIENT_ID');
-  const clientSecret = p('ADOBE_CLIENT_SECRET');
+  const commerceDomain = String(p('MAGENTO_COMMERCE_DOMAIN') || p('commerceDomain') || '')
+    .trim()
+    .replace(/\.admin\.commerce\.adobe\.com$/i, '.api.commerce.adobe.com');
+  const instanceId = p('MAGENTO_INSTANCE_ID') || p('instanceId');
+  const clientId = p('ADOBE_CLIENT_ID') || p('IMS_OAUTH_S2S_CLIENT_ID');
+  const clientSecret = p('ADOBE_CLIENT_SECRET') || p('IMS_OAUTH_S2S_CLIENT_SECRET');
+  const orgId = p('ADOBE_ORG_ID') || p('IMS_OAUTH_S2S_ORG_ID');
   const tokenUrl = p('ADOBE_TOKEN_URL');
-  const scope = p('ADOBE_SCOPE');
-  const accessToken = p('MAGENTO_ACCESS_TOKEN');
+  const scope = p('ADOBE_SCOPE') || p('IMS_OAUTH_S2S_SCOPES');
+  const accessToken = p('MAGENTO_ACCESS_TOKEN') || p('accessToken');
 
   if (!commerceDomain || !clientId || !clientSecret) {
-    throw new Error('Missing Magento / Adobe config: set MAGENTO_COMMERCE_DOMAIN, ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET');
+    throw new Error('Missing Magento / Adobe config: set commerceDomain or MAGENTO_COMMERCE_DOMAIN, plus ADOBE_CLIENT_ID/ADOBE_CLIENT_SECRET (or IMS_OAUTH_S2S_CLIENT_ID/SECRET).');
   }
 
   return {
@@ -32,10 +37,9 @@ function getMagentoConfig(params = {}) {
     instanceId: instanceId || '',
     clientId,
     clientSecret,
-    tokenUrl: tokenUrl || 'https://ims-na1.adobelogin.com/ims/token/v3',
-    scope:
-      scope ||
-      'AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api',
+    orgId,
+    tokenUrl: tokenUrl || getMagentoTokenUrl(params),
+    scope: scope || getMagentoScope(params),
     accessToken
   };
 }
@@ -44,20 +48,40 @@ function getMagentoConfig(params = {}) {
  * AUTH
  * -------------------------------------------------------------------------- */
 async function generateAccessToken(config) {
-  const response = await axios.post(config.tokenUrl, null, {
-    params: {
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      grant_type: 'client_credentials',
-      scope: config.scope
-    },
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-  });
-  return response.data.access_token;
+  const merged = {
+    clientId: config.clientId,
+    clientSecret: config.clientSecret
+  };
+
+  if (config.scope != null) {
+    if (Array.isArray(config.scope)) {
+      merged.scopes = config.scope;
+    } else if (typeof config.scope === 'string') {
+      try {
+        merged.scopes = JSON.parse(config.scope);
+      } catch {
+        merged.scopes = config.scope.split(/[,\s]+/).filter(Boolean);
+      }
+    }
+  }
+
+  if (config.orgId) merged.orgId = config.orgId;
+  if (merged.orgId == null && process.env.ADOBE_ORG_ID) merged.orgId = process.env.ADOBE_ORG_ID;
+  if (merged.orgId == null && process.env.IMS_OAUTH_S2S_ORG_ID) merged.orgId = process.env.IMS_OAUTH_S2S_ORG_ID;
+
+  const tokenRes = await aioGenerateAccessToken(merged);
+  return tokenRes?.access_token;
 }
 
 async function getAccessToken(config) {
-  return config.accessToken || generateAccessToken(config);
+  try {
+    const serviceToken = await generateAccessToken(config);
+    if (serviceToken) return serviceToken;
+  } catch (error) {
+    console.warn('update-tax-rate: service token generation failed, falling back to explicit accessToken', error?.message || error);
+  }
+  if (config.accessToken) return config.accessToken;
+  throw new Error('Unable to obtain Magento access token');
 }
 
 /* --------------------------------------------------------------------------
@@ -195,6 +219,17 @@ function formatMagentoTaxRatePayload(data, existingData) {
   return payload;
 }
 
+function isMagentoTaxRateSuccessPayload(payload) {
+  return Boolean(
+    payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload) &&
+      (payload.id || payload.tax_calculation_rate_id || payload.tax_rate_id) &&
+      payload.tax_country_id &&
+      payload.rate !== undefined
+  );
+}
+
 /**
  * Resolve numeric tax rate id from Magento when ABDB row only has code / tax_identifier (legacy sync).
  * GET /V1/taxRates/search with filter field=code.
@@ -301,16 +336,25 @@ async function updateInMagento(data, identifier, existingData, params = {}) {
       response: response.data
     };
   } catch (error) {
-    console.error('Magento API Error:', error.response?.data || error.message);
+    const magentoPayload = error.response?.data;
+    if (error.response?.status === 500 && isMagentoTaxRateSuccessPayload(magentoPayload)) {
+      console.warn('Magento returned HTTP 500 but updated the tax rate successfully:', JSON.stringify(magentoPayload));
+      return {
+        taxIdentifier: magentoPayload?.tax_identifier || magentoPayload?.code || magentoPayload?.id || taxRateId,
+        response: magentoPayload
+      };
+    }
+
+    console.error('Magento API Error:', magentoPayload || error.message);
     console.error('URL used:', url);
     console.error('Tax Rate ID used:', taxRateId);
     const magentoError = new Error(
       `Request failed with status code ${error.response?.status || 'unknown'}. ` +
-      `Details: ${JSON.stringify(error.response?.data || error.message)}. ` +
+      `Details: ${JSON.stringify(magentoPayload || error.message)}. ` +
       `URL: ${url}, Tax Rate ID: ${taxRateId}`
     );
     magentoError.statusCode = error.response?.status || 500;
-    magentoError.magentoResponse = error.response?.data;
+    magentoError.magentoResponse = magentoPayload;
     throw magentoError;
   }
 }
@@ -539,7 +583,7 @@ async function runUpdateFlow(params, dbCtx) {
   }
 
   // Update in Magento (numeric ID in body per Magento API)
-  const magento = await updateInMagento(mergedData, identifierToUse, existing, params);
+  const magento = await updateInMagento(mergedData, identifierToUse, existing, { ...params, ...body });
 
   // Format tax identifier
   const formatTaxIdentifier = (country, state, rate, customCode) => {

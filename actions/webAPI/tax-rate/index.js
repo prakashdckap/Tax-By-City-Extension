@@ -6,22 +6,25 @@
 const axios = require('axios');
 const dbHelper = require('./db-helper');
 const { CORS, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
+const {
+  getMagentoImsOrgId,
+  getRuntimeApiHost,
+  getRuntimeAuthBase64,
+  getRuntimeNamespace
+} = require('../lib/config');
 
 function manageTaxActionUrl(params) {
-  const ns = params.__OW_NAMESPACE || process.env.__OW_NAMESPACE || '3676633-taxbycity-stage';
-  return `https://adobeioruntime.net/api/v1/namespaces/${encodeURIComponent(ns)}/actions/tax-by-city/manage-tax?result=true&blocking=true`;
+  const runtimeApiHost = getRuntimeApiHost(params);
+  const ns = getRuntimeNamespace(params);
+  return `${runtimeApiHost}/api/v1/namespaces/${encodeURIComponent(ns)}/actions/tax-by-city/manage-tax?result=true&blocking=true`;
 }
 
 /** Basic auth for invoking manage-tax (same credentials as web API auth). */
 function getManageTaxAuthorization(params, body) {
   const fromBody = body?.runtimeBasicAuth || params.runtimeBasicAuth;
   if (fromBody && String(fromBody).trim()) return String(fromBody).trim();
-  const b64 = params.RUNTIME_AUTH_BASE64 || process.env.RUNTIME_AUTH_BASE64;
-  if (b64 && String(b64).trim()) return `Basic ${String(b64).trim()}`;
-  const u = (params.RUNTIME_USERNAME || process.env.RUNTIME_USERNAME || '').trim();
-  const p = (params.RUNTIME_PASSWORD || process.env.RUNTIME_PASSWORD || '').trim();
-  if (u && p) return `Basic ${Buffer.from(`${u}:${p}`, 'utf8').toString('base64')}`;
-  return 'Basic YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
+  const b64 = getRuntimeAuthBase64(params);
+  return b64 ? `Basic ${b64}` : null;
 }
 
 /**
@@ -265,9 +268,8 @@ async function handleGetRequest(params, dbCtx) {
                   queryParams.token || params.token;
     }
 
-    const orgId = params["__ow_headers"]?.["x-gw-ims-org-id"] || queryParams.orgId || params.orgId || 'C116239B68225A790A495C96@AdobeOrg';
-    const basicAuth = queryParams.runtimeBasicAuth || params.runtimeBasicAuth || 
-                     'Basic YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg=';
+    const orgId = params["__ow_headers"]?.["x-gw-ims-org-id"] || queryParams.orgId || params.orgId || getMagentoImsOrgId(params);
+    const basicAuth = queryParams.runtimeBasicAuth || params.runtimeBasicAuth || getManageTaxAuthorization(params, {});
 
     // Note: commerceDomain and accessToken are NOT required for database-only operations
     // They are only needed if syncToMagento is enabled

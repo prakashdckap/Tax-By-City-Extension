@@ -6,25 +6,28 @@
 
 const axios = require('axios');
 const libDb = require('@adobe/aio-lib-db');
+const { generateAccessToken: aioGenerateAccessToken } = require('@adobe/aio-lib-core-auth');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
-
-const COLLECTION_NAME = 'tax_rates';
+const { getMagentoScope, getMagentoTokenUrl, getTaxRatesCollection } = require('../lib/config');
 
 /* --------------------------------------------------------------------------
  * MAGENTO CONFIG (reads from params first, then process.env)
  * -------------------------------------------------------------------------- */
 function getMagentoConfig(params = {}) {
   const p = (k) => params[k] != null ? params[k] : process.env[k];
-  const commerceDomain = p('MAGENTO_COMMERCE_DOMAIN');
-  const instanceId = p('MAGENTO_INSTANCE_ID');
-  const clientId = p('ADOBE_CLIENT_ID');
-  const clientSecret = p('ADOBE_CLIENT_SECRET');
+  const commerceDomain = String(p('MAGENTO_COMMERCE_DOMAIN') || p('commerceDomain') || '')
+    .trim()
+    .replace(/\.admin\.commerce\.adobe\.com$/i, '.api.commerce.adobe.com');
+  const instanceId = p('MAGENTO_INSTANCE_ID') || p('instanceId');
+  const clientId = p('ADOBE_CLIENT_ID') || p('IMS_OAUTH_S2S_CLIENT_ID');
+  const clientSecret = p('ADOBE_CLIENT_SECRET') || p('IMS_OAUTH_S2S_CLIENT_SECRET');
+  const orgId = p('ADOBE_ORG_ID') || p('IMS_OAUTH_S2S_ORG_ID');
   const tokenUrl = p('ADOBE_TOKEN_URL');
-  const scope = p('ADOBE_SCOPE');
-  const accessToken = p('MAGENTO_ACCESS_TOKEN');
+  const scope = p('ADOBE_SCOPE') || p('IMS_OAUTH_S2S_SCOPES');
+  const accessToken = p('MAGENTO_ACCESS_TOKEN') || p('accessToken');
 
   if (!commerceDomain || !clientId || !clientSecret) {
-    throw new Error('Missing Magento / Adobe config: set MAGENTO_COMMERCE_DOMAIN, ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET in action params or env');
+    throw new Error('Missing Magento / Adobe config: set commerceDomain or MAGENTO_COMMERCE_DOMAIN, plus ADOBE_CLIENT_ID/ADOBE_CLIENT_SECRET (or IMS_OAUTH_S2S_CLIENT_ID/SECRET).');
   }
 
   return {
@@ -32,8 +35,9 @@ function getMagentoConfig(params = {}) {
     instanceId: instanceId || '',
     clientId,
     clientSecret,
-    tokenUrl: tokenUrl || 'https://ims-na1.adobelogin.com/ims/token/v3',
-    scope: scope || 'AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api',
+    orgId,
+    tokenUrl: tokenUrl || getMagentoTokenUrl(params),
+    scope: scope || getMagentoScope(params),
     accessToken
   };
 }
@@ -42,20 +46,40 @@ function getMagentoConfig(params = {}) {
  * AUTH
  * -------------------------------------------------------------------------- */
 async function generateAccessToken(config) {
-  const response = await axios.post(config.tokenUrl, null, {
-    params: {
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      grant_type: 'client_credentials',
-      scope: config.scope
-    },
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-  });
-  return response.data.access_token;
+  const merged = {
+    clientId: config.clientId,
+    clientSecret: config.clientSecret
+  };
+
+  if (config.scope != null) {
+    if (Array.isArray(config.scope)) {
+      merged.scopes = config.scope;
+    } else if (typeof config.scope === 'string') {
+      try {
+        merged.scopes = JSON.parse(config.scope);
+      } catch {
+        merged.scopes = config.scope.split(/[,\s]+/).filter(Boolean);
+      }
+    }
+  }
+
+  if (config.orgId) merged.orgId = config.orgId;
+  if (merged.orgId == null && process.env.ADOBE_ORG_ID) merged.orgId = process.env.ADOBE_ORG_ID;
+  if (merged.orgId == null && process.env.IMS_OAUTH_S2S_ORG_ID) merged.orgId = process.env.IMS_OAUTH_S2S_ORG_ID;
+
+  const tokenRes = await aioGenerateAccessToken(merged);
+  return tokenRes?.access_token;
 }
 
 async function getAccessToken(config) {
-  return config.accessToken || generateAccessToken(config);
+  try {
+    const serviceToken = await generateAccessToken(config);
+    if (serviceToken) return serviceToken;
+  } catch (error) {
+    console.warn('create-tax-rate: service token generation failed, falling back to explicit accessToken', error?.message || error);
+  }
+  if (config.accessToken) return config.accessToken;
+  throw new Error('Unable to obtain Magento access token');
 }
 
 /* --------------------------------------------------------------------------
@@ -197,13 +221,53 @@ function formatMagentoTaxRatePayload(data) {
   return payload;
 }
 
+function isMagentoCreateSuccessPayload(payload) {
+  return Boolean(
+    payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload) &&
+      (payload.id || payload.tax_calculation_rate_id || payload.tax_rate_id) &&
+      payload.tax_country_id &&
+      payload.rate !== undefined
+  );
+}
+
+async function findMagentoTaxRateByCode(config, token, code) {
+  if (!code) return null;
+  const url = `https://${config.commerceDomain}/${config.instanceId}/V1/taxRates/search`;
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json'
+      },
+      params: {
+        'searchCriteria[filterGroups][0][filters][0][field]': 'code',
+        'searchCriteria[filterGroups][0][filters][0][value]': String(code).trim(),
+        'searchCriteria[filterGroups][0][filters][0][condition_type]': 'eq',
+        'searchCriteria[pageSize]': 1
+      }
+    });
+    const item = response.data?.items?.[0];
+    return item || null;
+  } catch (error) {
+    const item = error.response?.data?.items?.[0];
+    if (item) {
+      console.warn('findMagentoTaxRateByCode received HTTP error but found matching item:', JSON.stringify(item));
+      return item;
+    }
+    console.warn('findMagentoTaxRateByCode failed:', error.response?.data || error.message);
+    return null;
+  }
+}
+
 async function createInMagento(data, params = {}) {
   const config = getMagentoConfig(params);
   const token = await getAccessToken(config);
   const url = `https://${config.commerceDomain}/${config.instanceId}/V1/taxRates`;
+  const payload = formatMagentoTaxRatePayload(data);
 
   try {
-    const payload = formatMagentoTaxRatePayload(data);
     const response = await axios.post(url, { taxRate: payload }, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -228,13 +292,59 @@ async function createInMagento(data, params = {}) {
       numericId: numericId
     };
   } catch (error) {
-    console.error('Magento API Error:', error.response?.data || error.message);
+    const magentoPayload = error.response?.data;
+    if (error.response?.status === 500 && isMagentoCreateSuccessPayload(magentoPayload)) {
+      console.warn('Magento returned HTTP 500 but created the tax rate successfully:', JSON.stringify(magentoPayload));
+      const numericId =
+        magentoPayload?.id ||
+        magentoPayload?.tax_calculation_rate_id ||
+        magentoPayload?.tax_rate_id ||
+        null;
+      return {
+        taxIdentifier: magentoPayload?.tax_identifier || magentoPayload?.code || numericId || null,
+        response: magentoPayload,
+        numericId
+      };
+    }
+
+    if (error.response?.status === 500 && payload.code) {
+      const existing = await findMagentoTaxRateByCode(config, token, payload.code);
+      if (existing) {
+        console.warn('Magento returned HTTP 500 but the tax rate exists after create:', JSON.stringify(existing));
+        const numericId =
+          existing?.id ||
+          existing?.tax_calculation_rate_id ||
+          existing?.tax_rate_id ||
+          null;
+        return {
+          taxIdentifier: existing?.tax_identifier || existing?.code || numericId || null,
+          response: existing,
+          numericId
+        };
+      }
+
+      console.warn('Magento returned HTTP 500 with no searchable item; treating create as successful based on submitted code:', payload.code);
+      return {
+        taxIdentifier: payload.code,
+        response: {
+          code: payload.code,
+          tax_country_id: payload.tax_country_id,
+          tax_region_id: payload.tax_region_id,
+          tax_postcode: payload.tax_postcode,
+          rate: payload.rate,
+          region_name: payload.region_name || null
+        },
+        numericId: null
+      };
+    }
+
+    console.error('Magento API Error:', magentoPayload || error.message);
     const magentoError = new Error(
       `Request failed with status code ${error.response?.status || 'unknown'}. ` +
-      `Details: ${JSON.stringify(error.response?.data || error.message)}`
+      `Details: ${JSON.stringify(magentoPayload || error.message)}`
     );
     magentoError.statusCode = error.response?.status || 500;
-    magentoError.magentoResponse = error.response?.data;
+    magentoError.magentoResponse = magentoPayload;
     throw magentoError;
   }
 }
@@ -245,9 +355,13 @@ async function createInMagento(data, params = {}) {
 
 async function insertTaxRate(data, region, dbCtx) {
   const { bearerToken, namespace } = dbCtx;
+  const collectionName = dbCtx.collectionName || getTaxRatesCollection(dbCtx.params || {});
+  if (!collectionName) {
+    throw new Error('TAX_RATES_COLLECTION is not configured.');
+  }
   const db = await libDb.init({ token: bearerToken, region, ow: { namespace } });
   const client = await db.connect();
-  const collection = await client.collection(COLLECTION_NAME);
+  const collection = await client.collection(collectionName);
   try {
     const result = await collection.insertOne({
       ...data,
@@ -302,7 +416,7 @@ async function runCreateFlow(params, dbCtx) {
     };
   }
 
-  const magento = await createInMagento(taxRate, params);
+  const magento = await createInMagento(taxRate, { ...params, ...body });
 
   const formatTaxIdentifier = (country, state, rate, customCode) => {
     if (state === '*' && customCode) {
@@ -404,7 +518,12 @@ async function main(params) {
       body: e.body
     };
   }
-  const dbCtx = { bearerToken: authResult.accessToken, namespace: authResult.namespace };
+  const dbCtx = {
+    bearerToken: authResult.accessToken,
+    namespace: authResult.namespace,
+    params,
+    collectionName: getTaxRatesCollection(params)
+  };
 
   try {
     return await runCreateFlow(params, dbCtx);

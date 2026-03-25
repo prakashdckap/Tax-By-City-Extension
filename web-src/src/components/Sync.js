@@ -23,13 +23,7 @@ import {
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
-
-const DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64 =
-  'YjQzYmUyMjAtZDU0ZC00MzE1LTk2ZjQtOWQwYmUxYjRhZDNjOmVrSzJVbWxNMFdnRmY2YmdqNXJVd3AyNnZhN081czdzVEpMUEpTOE8yeTB1ZjJYOGY2MjhrdzBWNDJqcUdKcTg='
-
-/** Deployed web action; used if config.json is missing the key */
-const SYNC_TAX_RATES_FALLBACK_URL =
-  'https://3676633-taxbycity-stage.adobeio-static.net/api/v1/web/tax-by-city/sync-tax-rates'
+import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
 
 const Sync = (props) => {
   const [syncing, setSyncing] = useState(false)
@@ -70,29 +64,16 @@ const Sync = (props) => {
   }, [props.ims?.token, props.ims?.org, props.runtime])
 
   const getActionUrl = (name, fallback) => {
-    if (props.runtime && typeof props.runtime.getActionUrl === 'function') {
-      const fromRuntime = props.runtime.getActionUrl(name)
-      if (fromRuntime) return fromRuntime
-    }
-    if (allActions[name]) return allActions[name]
-    if (allActions[`tax-by-city/${name}`]) return allActions[`tax-by-city/${name}`]
-    return fallback
+    return getConfiguredActionUrl(props.runtime, name) || fallback
   }
 
   const buildApiHeaders = () => {
-    const ns = allActions.runtimeNamespace || '3676633-taxbycity-stage'
-    if (props.ims?.token) {
-      return {
-        authorization: `Bearer ${props.ims.token}`,
-        'x-gw-ims-org-id': props.ims.org,
-        'x-runtime-namespace': ns
-      }
-    }
-    const basic = allActions.runtimeBasicAuthBase64 || DASHBOARD_FALLBACK_RUNTIME_BASIC_BASE64
-    return {
-      authorization: `Basic ${basic}`,
-      'x-runtime-namespace': ns
-    }
+    return buildActionHeaders({
+      ims: props.ims,
+      runtime: props.runtime,
+      preferredAction: 'sync-tax-rates',
+      basicAuthBase64: allActions.runtimeBasicAuthBase64
+    })
   }
 
   const parseHistoryRows = (res) => {
