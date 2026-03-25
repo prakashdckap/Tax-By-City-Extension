@@ -1,0 +1,244 @@
+{
+  project: {
+    id: "4566206088345553099",
+    name: "TaxByCity",
+    title: "Tax By City",
+    org: {
+      id: "3676633",
+      name: "Klizer Partner Sandbox",
+      ims_org_id: "C116239B68225A790A495C96@AdobeOrg",
+      details: {
+        services: [
+          {
+            name: "Adobe Express Embed SDK",
+            code: "CCEmbedCompanionAPI",
+            type: "adobeid"
+          },
+          {
+            name: "AEM Assets Author API",
+            code: "AEM Assets Author API",
+            type: "adobeid"
+          },
+          {
+            name: "Adobe Fusion",
+            code: "Fusion-API",
+            type: "adobeid"
+          },
+          {
+            name: "Adobe Commerce as a Cloud Service",
+            code: "ACCS-REST-API",
+            type: "adobeid"
+          },
+          {
+            name: "AEM CS Sites Content Management",
+            code: "AEM CS Sites Content Management",
+            type: "adobeid"
+          },
+          {
+            name: "Lightroom Services",
+            code: "LightroomPartnersSDK",
+            type: "adobeid"
+          },
+          {
+            name: "API Mesh for Adobe Developer App Builder",
+            code: "GraphQLServiceSDK",
+            type: "adobeid"
+          },
+          {
+            name: "Frame.io API",
+            code: "FrameioAPISDK",
+            type: "adobeid"
+          },
+          {
+            name: "PDF Embed API",
+            code: "ViewSDK",
+            type: "adobeid"
+          },
+          {
+            name: "Adobe Commerce with Adobe ID",
+            code: "AdobeCommerceWithAdobeID",
+            type: "adobeid"
+          },
+          {
+            name: "AEM Forms Delivery and Runtime API",
+            code: "FormsDeliveryRuntimeSDK",
+            type: "adobeid"
+          },
+          {
+            name: "Asset Compute",
+            code: "AssetComputeSDK",
+            type: "entp"
+          },
+          {
+            name: "I/O Management API",
+            code: "AdobeIOManagementAPISDK",
+            type: "entp"
+          },
+          {
+            name: "Smart Content",
+            code: "MCSmartContentServicesSDK",
+            type: "entp"
+          },
+          {
+            name: "Primetime Ad Insertion",
+            code: "Ad Config Service",
+            type: "entp"
+          },
+          {
+            name: "App Builder Data Services",
+            code: "AppBuilderDataServicesSDK",
+            type: "entp"
+          },
+          {
+            name: "Experience Cloud Setup Automation",
+            code: "DxSetupAutomationSDK",
+            type: "entp"
+          },
+          {
+            name: "Test API 2",
+            code: "nogw-d240b6bc-c836-4eaf-ae56-345b91162165",
+            type: "entp"
+          },
+          {
+            name: "I/O Events",
+            code: "CloudIntegrationSDK",
+            type: "entp"
+          },
+          {
+            name: "Adobe Commerce as a Cloud Service",
+            code: "ACCS-REST-API",
+            type: "entp"
+          },
+          {
+            name: "Test API 1",
+            code: "nogw-183559d6-ec08-4cb2-861c-9cfe235c5c9c",
+            type: "entp"
+          },
+          {
+            name: "Adobe Commerce Optimizer Ingestion",
+            code: "ACO-Ingestion",
+            type: "entp"
+          },
+          {
+            name: "Adobe Commerce Optimizer Admin",
+            code: "ACO-Admin",
+            type: "entp"
+          },
+          {
+            name: "Cloud Manager",
+            code: "CloudManagerSDK",
+            type: "entp"
+          },
+          {
+            name: "Adobe Status API",
+            code: "StatusAPISDK",
+            type: "entp"
+          },
+          {
+            name: "Globalization Content Service",
+            code: "gcs-partner",
+            type: "entp"
+          },
+          {
+            name: "Adobe I/O Events for Adobe Commerce",
+            code: "commerceeventing",
+            type: "entp"
+          }
+        ]
+      }
+    },
+    workspace: {
+      id: "4566206088345583549",
+      name: "Stage",
+      title: "Stage",
+      action_url: "https://3676633-taxbycity-stage.adobeioruntime.net",
+      app_url: "https://3676633-taxbycity-stage.adobeio-static.net",
+      details: {
+        credentials: [
+          {
+            id: "876496",
+            name: "Credential_in_Tax_By_City_-_Stage",
+            integration_type: "oauth_server_to_server"
+          },
+          {
+            id: "876499",
+            name: "Project_1765780021011K",
+            integration_type: "apikey"
+          }
+        ],
+        services: [
+          {
+            code: "ACCS-REST-API",
+            name: "Adobe Commerce as a Cloud Service"
+          },
+          {
+            code: "AdobeIOManagementAPISDK",
+            name: "I/O Management API"
+          },
+          {
+            code: "GraphQLServiceSDK",
+            name: "API Mesh for Adobe Developer App Builder"
+          },
+          {
+            code: "AppBuilderDataServicesSDK",
+            name: "App Builder Data Services"
+          }
+        ],
+        events: {
+          registrations: [
+            {
+              id: "3286950",
+              name: "Quote After Event",
+              description: "Get the data Quote After Event",
+              enabled: "true",
+              client_id: "02cacbf78e8b4e8d8cfe2f1eaa886c30",
+              registration_id: "5b3fa627-528d-4c2a-95cd-a6a48f32b6d0",
+              webhook_status: "verified",
+              created_date: "2026-03-06T03:28:48.000Z",
+              updated_date: "2026-03-06T05:21:10.000Z",
+              webhook_url: "https://runtime.adobe.io/api/v1/web/3676633-taxbycity-stage/acp/sync_event_handler_V3EstbfBft?sync=true&id=V3EstbfBft",
+              delivery_type: "webhook",
+              runtime_action: "magento-tax-rate",
+              events_url: "https://events-va6.adobe.io/events/organizations/3676633/integrations/876496/5b3fa627-528d-4c2a-95cd-a6a48f32b6d0",
+              trace_url: "https://eventtraces-va6.adobe.io/traces/3676633/4566206088345553099/4566206088345583549/registration/5b3fa627-528d-4c2a-95cd-a6a48f32b6d0",
+              events_of_interest: [
+                {
+                  event_code: "com.adobe.commerce.sales_quote_save_after",
+                  provider_id: "2b173efa-b684-4e1d-8af6-b289adaec311",
+                  event_label: "eventcom.adobe.commerce.sales_quote_save_after",
+                  event_description: "event com.adobe.commerce.sales_quote_save_after",
+                  provider_label: "CartBefore",
+                  provider_description: "CartBeforeEvent (Instance GMBkaBQSumFG4qaxU86h3L)",
+                  provider_docs_url: "https://developer.adobe.com/commerce/extensibility/events/",
+                  event_delivery_format: "cloud_events_v1",
+                  provider_metadata: "dx_commerce_events"
+                }
+              ],
+              event_delivery_formats: [
+                "cloud_events_v1"
+              ],
+              subscriber_filters: [],
+              read_only: false
+            }
+          ]
+        }
+      }
+    }
+  },
+  ims: {
+    contexts: {
+      oauth_s2s_3676633-taxbycity-stage: {
+        client_id: "02cacbf78e8b4e8d8cfe2f1eaa886c30",
+        client_secrets: "[\"p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd\"]",
+        ims_org_id: "C116239B68225A790A495C96@AdobeOrg",
+        scopes: "[\"AdobeID\",\"openid\",\"read_organizations\",\"additional_info.projectedProductContext\",\"additional_info.roles\",\"adobeio_api\",\"read_client_secret\",\"manage_client_secrets\",\"commerce.accs\",\"profile\",\"email\",\"org.read\",\"adobeio.abdata.read\",\"adobeio.abdata.write\",\"adobeio.abdata.manage\"]",
+        technical_account_email: "dummy@techacct.adobe.com",
+        technical_account_id: "dummy@techacct.adobe.com",
+        access_token: {
+          token: "eyJhbGciOiJSUzI1NiIsIng1dSI6Imltc19uYTEta2V5LWF0LTEuY2VyIiwia2lkIjoiaW1zX25hMS1rZXktYXQtMSIsIml0dCI6ImF0In0.eyJpZCI6IjE3NzQ0MzUzMjAwOTNfYjE2YmRhZGQtMWM3MS00YzJlLWFkYjMtNjRjYWVmYjA2NzU2X3V3MiIsIm9yZyI6IkMxMTYyMzlCNjgyMjVBNzkwQTQ5NUM5NkBBZG9iZU9yZyIsInR5cGUiOiJhY2Nlc3NfdG9rZW4iLCJjbGllbnRfaWQiOiIwMmNhY2JmNzhlOGI0ZThkOGNmZTJmMWVhYTg4NmMzMCIsInVzZXJfaWQiOiJCNjFGMjFFNjY5M0ZBQTExMEE0OTVFMDRAdGVjaGFjY3QuYWRvYmUuY29tIiwiYXMiOiJpbXMtbmExIiwiYWFfaWQiOiJCNjFGMjFFNjY5M0ZBQTExMEE0OTVFMDRAdGVjaGFjY3QuYWRvYmUuY29tIiwiY3RwIjozLCJtb2kiOiI4NTIwNGQ1MyIsImV4cGlyZXNfaW4iOiI4NjQwMDAwMCIsImNyZWF0ZWRfYXQiOiIxNzc0NDM1MzIwMDkzIiwic2NvcGUiOiJhZG9iZWlvLmFiZGF0YS5tYW5hZ2Usb3BlbmlkLHByb2ZpbGUsQWRvYmVJRCxvcmcucmVhZCxyZWFkX29yZ2FuaXphdGlvbnMsY29tbWVyY2UuYWNjcyxhZG9iZWlvLmFiZGF0YS5yZWFkLGFkZGl0aW9uYWxfaW5mby5yb2xlcyxhZG9iZWlvLmFiZGF0YS53cml0ZSxhZGRpdGlvbmFsX2luZm8ucHJvamVjdGVkUHJvZHVjdENvbnRleHQsZW1haWwifQ.EOE5c4nZ-C3AzLtXNLcAvVDNSfBYryDJ374Vo7ytI8De22AyOyGQM8hPgXfSSbzU9qcJ42wiq5T6MoekDcgo5r93goAI3QAia7Vm5poCTNVDdePIWsDnvSVBwksvNCg8RbIAA7tic4S4Jx2LUY8j6n_o-RdhGf6MobuAhBzdTudjMZTkj5P1KnxwOwrwsHE1FgtaiJbs9lo8R_oJBH0PVUdLtux5SMAN5Ve1pTU2KgZRAJ0tNPkePPDxNlgAJTcpIlEQuly-fkRNYj5dibz4r7AfXHzXZNQLF15YeR7pGEsX6gjqDlq2O3OWw4r0JrDSWYq8upsRdVTOcHEfWoXfbg",
+          expiry: 1774521720093
+        }
+      }
+    }
+  }
+}
