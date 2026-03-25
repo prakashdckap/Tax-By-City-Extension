@@ -8,22 +8,31 @@ application:
       tax-by-city:
         license: Apache-2.0
         actions:
-          tax-config:
-            function: actions/webAPI/tax-config/index.js
+          tax-rate:
+            function: actions/tax-rate/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
+              RUNTIME_USERNAME: b43be220-d54d-4315-96f4-9d0be1b4ad3c
+              RUNTIME_PASSWORD: ekK2UmlM0WgFf6bgj5rUwp26va7O5s7sTJLPJS8O2y0uf2X8f628kw0V42jqGJq8
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+              ADOBE_SCOPE: adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage
             annotations:
+              # false: gateway allows request; action validates Basic auth (same as hello-api)
               require-adobe-auth: false
               include-ims-credentials: true
+              final: true
+          tax-config:
+            function: actions/tax-config/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+            annotations:
+              require-adobe-auth: true
               final: true
           generic:
             function: actions/generic/index.js
@@ -44,25 +53,76 @@ application:
             annotations:
               require-adobe-auth: true
               final: true
-          list-tax-rates:
-            function: actions/webAPI/list-tax-rates/index.js
+          manage-tax:
+            function: actions/manage-tax-rate/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
+              MAGENTO_COMMERCE_DOMAIN: na1-sandbox.api.commerce.adobe.com
+              MAGENTO_INSTANCE_ID: GMBkaBQSumFG4qaxU86h3L
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_TOKEN_URL: https://ims-na1.adobelogin.com/ims/token/v3
+              ADOBE_SCOPE: AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api,read_client_secret,manage_client_secrets,event_receiver_api
+            annotations:
+              require-adobe-auth: true
+              include-ims-credentials: true
+              final: true
+          generate-token:
+            function: actions/generate-token/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_TOKEN_URL: https://ims-na1.adobelogin.com/ims/token/v3
+              ADOBE_SCOPE: AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api,read_client_secret,manage_client_secrets,event_receiver_api
+            annotations:
+              require-adobe-auth: false
+              final: true
+          get-db-token:
+            function: actions/get-db-token/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+              ADOBE_TOKEN_URL: https://ims-na1.adobelogin.com/ims/token/v3
+              # Include DB scopes so token works for App Builder Database (avoids 401 Oauth token is not valid)
+              ADOBE_SCOPE: AdobeID,openid,read_organizations,additional_info.projectedProductContext,additional_info.roles,adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage,read_client_secret,manage_client_secrets,event_receiver_api
+            annotations:
+              require-adobe-auth: false
+              final: true
+          list-tax-rates:
+            function: actions/list-tax-rates/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
             annotations:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
-          
+          tax-rates-table:
+            function: actions/tax-rates-table/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+            annotations:
+              require-adobe-auth: false
+              include-ims-credentials: true
+              final: true
           get-taxes:
             function: actions/webAPI/get-taxes/index.js
             web: 'yes'
@@ -73,35 +133,43 @@ application:
               require-adobe-auth: true
               include-ims-credentials: true
               final: true
-          
+          hello-api:
+            function: actions/webAPI/hello-api/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+              # Must match client Basic auth (Runtime namespace:auth_key)
+              RUNTIME_USERNAME: b43be220-d54d-4315-96f4-9d0be1b4ad3c
+              RUNTIME_PASSWORD: ekK2UmlM0WgFf6bgj5rUwp26va7O5s7sTJLPJS8O2y0uf2X8f628kw0V42jqGJq8
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+              ADOBE_SCOPE: adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage
+            annotations:
+              # false = gateway allows Basic auth through; action code validates Basic vs RUNTIME_* above
+              require-adobe-auth: false
+              include-ims-credentials: true
+              final: true
           save-tax-rate:
             function: actions/webAPI/save-tax-rate/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_USERNAME: b43be220-d54d-4315-96f4-9d0be1b4ad3c
+              RUNTIME_PASSWORD: ekK2UmlM0WgFf6bgj5rUwp26va7O5s7sTJLPJS8O2y0uf2X8f628kw0V42jqGJq8
             annotations:
               require-adobe-auth: false
               final: true
           delete-tax-rate-action:
-            function: actions/webAPI/delete-tax-rate/index.js
+            function: actions/delete-tax-rate/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
-              MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
             annotations:
-              require-adobe-auth: false
+              require-adobe-auth: true
               include-ims-credentials: true
               final: true
           delete-tax-rate:
@@ -110,34 +178,23 @@ application:
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
-              MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
             annotations:
-              require-adobe-auth: false
+              require-adobe-auth: true
               include-ims-credentials: true
               final: true
           get-tax-rate:
-            function: actions/webAPI/get-tax-rate/index.js
+            function: actions/get-tax-rate/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
+              # Optional: override generate-token URL; else built from __OW_NAMESPACE
+              # GENERATE_TOKEN_URL: https://<namespace>.adobeioruntime.net/api/v1/web/tax-by-city/generate-token
+              # Fallback DB auth (if generate-token fails):
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
             annotations:
-              require-adobe-auth: false
+              require-adobe-auth: true
               include-ims-credentials: true
               final: true
           get-tax-percentage:
@@ -151,125 +208,65 @@ application:
               include-ims-credentials: true
               final: true
           calculate-tax-rate:
-            function: actions/webAPI/calculate-tax-rate/index.js
+            function: actions/calculate-tax-rate/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
-              ADOBE_SCOPE: $ADOBE_SCOPE
             annotations:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
-          create-tax-rate:
-            function: actions/webAPI/create-tax-rate/index.js
+          hello-world:
+            function: actions/hello-world/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
-              MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
+              ADOBE_SCOPE: adobeio_api,adobeio.abdata.read,adobeio.abdata.write,adobeio.abdata.manage
             annotations:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
-          update-tax-rate:
-            function: actions/webAPI/update-tax-rate/index.js
+          fetch-db-table:
+            function: actions/fetch-db-table/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
-              MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
+              ADOBE_CLIENT_ID: 02cacbf78e8b4e8d8cfe2f1eaa886c30
+              ADOBE_CLIENT_SECRET: p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd
+              ADOBE_ORG_ID: C116239B68225A790A495C96@AdobeOrg
             annotations:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
-          
-          magento-tax-rate:
-            function: actions/webAPI/magento-tax-rate/index.js
+          db-debug:
+            function: actions/db-debug/index.js
             web: 'yes'
             runtime: nodejs:22
             inputs:
               LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              GRAPHQL_URL: $GRAPHQL_URL
-              MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
-              MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
-              MAGENTO_ENVIRONMENT_ID: $MAGENTO_ENVIRONMENT_ID
-              API_KEY: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              IMS_ORG_ID: $ADOBE_ORG_ID
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
-              MAGENTO_WEBSITE_CODE: $MAGENTO_WEBSITE_CODE
-              MAGENTO_STORE_CODE: $MAGENTO_STORE_CODE
-              MAGENTO_STORE_VIEW_CODE: $MAGENTO_STORE_VIEW_CODE
-              MAGENTO_CUSTOMER_GROUP: $MAGENTO_CUSTOMER_GROUP
             annotations:
-              require-adobe-auth: false
+              require-adobe-auth: true
               include-ims-credentials: true
               final: true
-          sync-tax-rates:
-            function: actions/webAPI/sync-tax-rates/index.js
-            web: 'yes'
-            runtime: nodejs:22
-            inputs:
-              LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
-              MAGENTO_COMMERCE_DOMAIN: $MAGENTO_COMMERCE_DOMAIN
-              MAGENTO_INSTANCE_ID: $MAGENTO_INSTANCE_ID
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
-            annotations:
-              require-adobe-auth: false
-              include-ims-credentials: true
-              final: true
-          list-sync-history:
-            function: actions/webAPI/list-sync-history/index.js
-            web: 'yes'
-            runtime: nodejs:22
-            inputs:
-              LOG_LEVEL: debug
-              RUNTIME_USERNAME: $RUNTIME_USERNAME
-              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
-              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
-              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
-              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
-              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
-              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
-              ADOBE_ORG_ID: $ADOBE_ORG_ID
-            annotations:
-              require-adobe-auth: false
-              include-ims-credentials: true
-              final: true
+        magento-tax-rate:
+          function: actions/magento-tax-rate/magento-tax-rate.zip
+          web: 'no'
+          runtime: nodejs:22
+          inputs:
+            LOG_LEVEL: debug
+            MAGENTO_COMMERCE_DOMAIN: na1-sandbox.api.commerce.adobe.com
+            MAGENTO_INSTANCE_ID: GMBkaBQSumFG4qaxU86h3L
+            API_KEY: "02cacbf78e8b4e8d8cfe2f1eaa886c30"
+            IMS_ORG_ID: "C116239B68225A790A495C96@AdobeOrg"
+          annotations:
+            require-adobe-auth: false
+            final: true
 
 modules:
   admin-ui:
