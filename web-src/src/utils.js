@@ -43,13 +43,20 @@ async function actionWebInvoke (actionUrl, headers = {}, params = {}, options = 
     actionHeaders['x-ow-extra-logging'] = 'on'
   }
 
-  fetchConfig.method = options.method.toUpperCase()
+  fetchConfig.method = (options.method || 'POST').toUpperCase()
 
   if (fetchConfig.method === 'GET') {
     actionUrl = new URL(actionUrl)
     Object.keys(params).forEach(key => actionUrl.searchParams.append(key, params[key]))
   } else if (fetchConfig.method === 'POST' || fetchConfig.method === 'DELETE' || fetchConfig.method === 'PUT') {
     fetchConfig.body = JSON.stringify(params)
+  }
+
+  const actionUrlString = String(actionUrl)
+  // Raw runtime API + namespace web host preflight often omits x-runtime-namespace; Basic auth still resolves namespace.
+  if (/\.adobeioruntime\.net/i.test(actionUrlString)) {
+    delete fetchConfig.headers['x-runtime-namespace']
+    delete fetchConfig.headers['X-Runtime-Namespace']
   }
 
   console.log('[actionWebInvoke] Calling:', actionUrl)

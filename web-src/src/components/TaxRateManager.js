@@ -33,11 +33,14 @@ import {
   SearchField,
   Picker,
   Item,
-  ToggleButton
+  ToggleButton,
+  AlertDialog,
+  DialogContainer
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
-import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
+import { RUNTIME_BASIC_AUTH_BASE64 } from '../generatedRuntimeAuth'
+import { buildActionHeaders, getConfiguredActionUrl, hasWebActionAuth } from '../runtimeConfig'
 import { countries, getStatesForCountry, getStateName } from '../countries-states'
 import { syncTaxRatesFromMagento } from '../syncService'
 import { prepareRegionForMagento } from '../regionMapper'
@@ -66,6 +69,7 @@ const TaxRateManager = (props) => {
   const [sortDescriptor, setSortDescriptor] = useState({ column: null, direction: 'asc' })
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(100)
+  const [deleteConfirmRateId, setDeleteConfirmRateId] = useState(null)
   const [filterStatus, setFilterStatus] = useState('all') // 'all', 'active', 'inactive'
   
   // Column-specific filters (Magento style)
@@ -99,7 +103,6 @@ const TaxRateManager = (props) => {
     commerceDomain: '',
     instanceId: '',
     syncToMagento: true, // Default checked
-    runtimeBasicAuth: '', // Basic auth token for Runtime (should be from .env/config)
     autoSyncEnabled: false,
     autoSyncInterval: 10 // minutes
   })
@@ -707,8 +710,7 @@ const TaxRateManager = (props) => {
         commerceDomain: magentoSettings.commerceDomain,
         instanceId: magentoSettings.instanceId || null,
         accessToken: props.ims.token, // Access token from IMS (Commerce API Bearer token)
-        taxRate: magentoTaxRate,
-        runtimeBasicAuth: magentoSettings.runtimeBasicAuth || '' // Basic auth for Runtime (optional, has fallback)
+        taxRate: magentoTaxRate
       }
 
       // Use tax-rate action (web action that supports CORS) which internally calls manage-tax
@@ -720,7 +722,8 @@ const TaxRateManager = (props) => {
         ...buildActionHeaders({
           ims: props.ims,
           runtime: props.runtime,
-          preferredAction: 'tax-rate'
+          preferredAction: 'tax-rate',
+          basicAuthBase64: allActions.runtimeBasicAuthBase64
         }),
         'Content-Type': 'application/json'
       }
@@ -808,10 +811,17 @@ const TaxRateManager = (props) => {
         return
       }
 
+      if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+        setError('Adobe sign-in is required to save tax rates. Use this app inside Commerce Admin so your IMS token is available.')
+        setLoading(false)
+        return
+      }
+
       const headers = buildActionHeaders({
         ims: props.ims,
         runtime: props.runtime,
-        preferredAction: 'create-tax-rate'
+        preferredAction: 'create-tax-rate',
+        basicAuthBase64: allActions.runtimeBasicAuthBase64
       })
 
       // For updates, check for duplicates in the frontend first (client-side validation)
@@ -1068,17 +1078,42 @@ const TaxRateManager = (props) => {
     setLoading(true)
     setError(null)
 
-    // If forcing from database, clear localStorage first to prevent fallback
+    if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+      setLoading(false)
+      if (forceFromDatabase) {
+        setError('Adobe sign-in required to load tax rates from the database.')
+        setTaxRates([])
+        return
+      }
+      const savedRates = localStorage.getItem('taxByCityRates')
+      if (savedRates) {
+        try {
+          const rates = JSON.parse(savedRates)
+          setTaxRates(normalizeTaxRates(Array.isArray(rates) ? rates : []))
+          setError('Using saved tax rates. Sign in via Commerce admin to load from the database.')
+        } catch (e) {
+          setTaxRates([])
+          setError(null)
+        }
+      } else {
+        setTaxRates([])
+        setError('Sign in via Commerce admin to load tax rates from the database.')
+      }
+      return
+    }
+
     if (forceFromDatabase) {
-      console.log('Force reload from database: Clearing localStorage...')
       localStorage.removeItem('taxByCityRates')
     }
+
+    const listParams = { limit: 0 }
 
     try {
       const headers = buildActionHeaders({
         ims: props.ims,
         runtime: props.runtime,
-        preferredAction: 'list-tax-rates'
+        preferredAction: 'list-tax-rates',
+        basicAuthBase64: allActions.runtimeBasicAuthBase64
       })
 
       // Call list-tax-rates DIRECTLY with GET ?limit=0 to get ALL records (no 20 limit)
@@ -1108,7 +1143,7 @@ const TaxRateManager = (props) => {
       try {
         // GET with ?limit=0 = return ALL records (list-tax-rates only accepts GET)
         console.log('Fetching tax rates from list-tax-rates with limit=0 (all records)...', { actionUrl, forceFromDatabase })
-        const response = await actionWebInvoke(actionUrl, headers, { limit: 0 }, { method: 'GET' })
+        const response = await actionWebInvoke(actionUrl, headers, listParams, { method: 'GET' })
           
           console.log('Response from list-tax-rates API:', JSON.stringify(response, null, 2))
           
@@ -1178,7 +1213,7 @@ const TaxRateManager = (props) => {
             message: err.message,
             stack: err.stack,
             actionUrl: actionUrl,
-            params: params,
+            params: listParams,
             hasImsToken: !!props.ims?.token,
             hasImsOrg: !!props.ims?.org
           })
@@ -1265,8 +1300,23 @@ const TaxRateManager = (props) => {
     }
   }
 
-  const handleDelete = async (rateId) => {
-    if (!window.confirm('Are you sure you want to delete this tax rate?')) {
+  const openDeleteConfirm = (rateId) => {
+    if (rateId === undefined || rateId === null || rateId === '') {
+      setError('Cannot delete: missing tax rate id.')
+      return
+    }
+    setDeleteConfirmRateId(rateId)
+  }
+
+  const handleConfirmDelete = async () => {
+    const rateId = deleteConfirmRateId
+    setDeleteConfirmRateId(null)
+    if (rateId === undefined || rateId === null || rateId === '') {
+      return
+    }
+
+    if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+      setError('Adobe sign-in is required to delete tax rates.')
       return
     }
 
@@ -1277,7 +1327,8 @@ const TaxRateManager = (props) => {
       const headers = buildActionHeaders({
         ims: props.ims,
         runtime: props.runtime,
-        preferredAction: 'delete-tax-rate'
+        preferredAction: 'delete-tax-rate',
+        basicAuthBase64: allActions.runtimeBasicAuthBase64
       })
 
       // Get action URL - use same pattern as create/update actions
@@ -1315,22 +1366,14 @@ const TaxRateManager = (props) => {
   }
 
   React.useEffect(() => {
-    // Load tax rates on mount - clear localStorage first to force database load
-    // This ensures we always try the database first, not cached data
-    console.log('Initial load: Clearing localStorage to force database load...')
-    localStorage.removeItem('taxByCityRates')
-    loadTaxRates(true) // Force from database on initial load
-    
-    // Load Magento settings from localStorage (saved from Configuration page)
     const savedMagentoSettings = localStorage.getItem('magentoSettings')
     if (savedMagentoSettings) {
       try {
         const parsed = JSON.parse(savedMagentoSettings)
         setMagentoSettings({
-          syncToMagento: parsed.syncToMagento !== false, // Default to true if not set
+          syncToMagento: parsed.syncToMagento !== false,
           commerceDomain: parsed.commerceDomain || '',
           instanceId: parsed.instanceId || '',
-          runtimeBasicAuth: parsed.runtimeBasicAuth || '', // Basic auth for Runtime
           autoSyncEnabled: parsed.autoSyncEnabled || false,
           autoSyncInterval: parsed.autoSyncInterval || 10
         })
@@ -1339,6 +1382,14 @@ const TaxRateManager = (props) => {
       }
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+      return
+    }
+    localStorage.removeItem('taxByCityRates')
+    loadTaxRates(true)
+  }, [props.ims?.token, allActions.runtimeBasicAuthBase64, RUNTIME_BASIC_AUTH_BASE64])
 
   // Auto-sync effect
   React.useEffect(() => {
@@ -2280,7 +2331,7 @@ const TaxRateManager = (props) => {
                               </TooltipTrigger>
                               <TooltipTrigger>
                                 <ActionButton
-                                  onPress={() => handleDelete(rate._id || rate.id || rate.tax_calculation_rate_id)}
+                                  onPress={() => openDeleteConfirm(rate._id || rate.id || rate.tax_calculation_rate_id)}
                                 >
                                   <Delete size="S" />
                                 </ActionButton>
@@ -2407,7 +2458,7 @@ const TaxRateManager = (props) => {
                       </Button>
                       <Button 
                         variant="negative" 
-                        onPress={() => handleDelete(rate._id || rate.id || rate.tax_calculation_rate_id)}
+                        onPress={() => openDeleteConfirm(rate._id || rate.id || rate.tax_calculation_rate_id)}
                       >
                         Delete
                       </Button>
@@ -2420,6 +2471,21 @@ const TaxRateManager = (props) => {
         )}
         </Flex>
       </View>
+
+      <DialogContainer onDismiss={() => setDeleteConfirmRateId(null)}>
+        {deleteConfirmRateId != null && deleteConfirmRateId !== '' ? (
+          <AlertDialog
+            title="Delete tax rate"
+            variant="destructive"
+            primaryActionLabel="Delete"
+            cancelLabel="Cancel"
+            onPrimaryAction={() => { void handleConfirmDelete() }}
+            onCancel={() => setDeleteConfirmRateId(null)}
+          >
+            Are you sure you want to delete this tax rate? This cannot be undone.
+          </AlertDialog>
+        ) : null}
+      </DialogContainer>
     </View>
   )
 }

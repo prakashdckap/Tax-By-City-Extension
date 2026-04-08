@@ -23,7 +23,12 @@ import {
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
-import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
+import { RUNTIME_BASIC_AUTH_BASE64 } from '../generatedRuntimeAuth'
+import {
+  buildActionHeaders,
+  getConfiguredActionUrl,
+  hasWebActionAuth
+} from '../runtimeConfig'
 
 const Settings = (props) => {
   const [loading, setLoading] = useState(false)
@@ -43,72 +48,90 @@ const Settings = (props) => {
     auto_sync_interval: 10 // minutes
   })
 
-  // Load configuration from tax-config action on mount
+  const buildMagentoSettingsPayload = () => ({
+    syncToMagento: settings.magento_sync_enabled,
+    commerceDomain: settings.magento_commerce_domain,
+    instanceId: settings.magento_instance_id,
+    autoSyncEnabled: settings.auto_sync_enabled,
+    autoSyncInterval: settings.auto_sync_interval || 10
+  })
+
+  const persistMagentoSettings = () => {
+    const payload = buildMagentoSettingsPayload()
+    localStorage.setItem('magentoSettings', JSON.stringify(payload))
+    window.dispatchEvent(new Event('taxbycity-magento-settings'))
+  }
+
   useEffect(() => {
-    loadConfiguration()
-    
-    // Also try to load from localStorage as fallback
     const savedConfig = localStorage.getItem('taxByCityConfig')
     if (savedConfig) {
       try {
         const parsed = JSON.parse(savedConfig)
         setSettings(prev => ({ ...prev, ...parsed }))
       } catch (e) {
-        // Error loading config from localStorage - use defaults
+        /* ignore */
       }
     }
-    
-    // Load Magento sync settings from localStorage
     const savedMagentoSettings = localStorage.getItem('magentoSettings')
     if (savedMagentoSettings) {
       try {
         const parsed = JSON.parse(savedMagentoSettings)
         setSettings(prev => ({
           ...prev,
-          magento_sync_enabled: parsed.syncToMagento !== false, // Default to true
+          magento_sync_enabled: parsed.syncToMagento !== false,
           magento_commerce_domain: parsed.commerceDomain || '',
           magento_instance_id: parsed.instanceId || ''
         }))
       } catch (e) {
-        // Error loading Magento settings - use defaults
+        /* ignore */
       }
     }
   }, [])
 
-  const loadConfiguration = async () => {
-    try {
-      // Try to load config, but if actions aren't web-accessible, use defaults
-      const headers = buildActionHeaders({
-        ims: props.ims,
-        runtime: props.runtime,
-        preferredAction: 'tax-config'
-      })
-
-      const actionUrl = getConfiguredActionUrl(props.runtime, 'tax-config')
-
-      if (actionUrl) {
-        try {
-          const params = { operation: 'GET' }
-          const response = await actionWebInvoke(actionUrl, headers, params)
-
-          if (response.statusCode === 200 && response.body) {
-            setSettings(prev => ({ ...prev, ...response.body }))
-            setConfigStatus('connected')
-            return
-          }
-        } catch (e) {
-          // Could not load config from action, using defaults
-        }
-      }
-
-    
-
-      // Default: actions exist but may not be web-accessible
+  useEffect(() => {
+    let cancelled = false
+    if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
       setConfigStatus('partial')
-    } catch (e) {
-      setConfigStatus('error')
+      return
     }
-  }
+
+    ;(async () => {
+      try {
+        const headers = buildActionHeaders({
+          ims: props.ims,
+          runtime: props.runtime,
+          preferredAction: 'tax-config',
+          basicAuthBase64: allActions.runtimeBasicAuthBase64
+        })
+
+        const actionUrl = getConfiguredActionUrl(props.runtime, 'tax-config')
+
+        if (actionUrl) {
+          try {
+            const params = { operation: 'GET' }
+            const response = await actionWebInvoke(actionUrl, headers, params)
+
+            if (cancelled) return
+            if (response.statusCode === 200 && response.body) {
+              setSettings(prev => ({ ...prev, ...response.body }))
+              setConfigStatus('connected')
+              return
+            }
+          } catch (e) {
+            /* use defaults */
+          }
+        }
+
+        if (!cancelled) setConfigStatus('partial')
+      } catch (e) {
+        if (!cancelled) setConfigStatus('error')
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [props.ims?.token, allActions.runtimeBasicAuthBase64, RUNTIME_BASIC_AUTH_BASE64])
 
   const handleInputChange = (field, value) => {
     setSettings(prev => ({
@@ -125,10 +148,27 @@ const Settings = (props) => {
     setSuccess(false)
 
     try {
+      persistMagentoSettings()
+
+      if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+        localStorage.setItem('taxByCityConfig', JSON.stringify(settings))
+        setSuccess(true)
+        setConfigStatus('partial')
+        setError(
+          'Saved locally. Sign in with Adobe IMS to persist to App Builder Database, or rebuild the web bundle with RUNTIME_AUTH_BASE64 (or RUNTIME_USERNAME/PASSWORD) in .env.'
+        )
+        setTimeout(() => {
+          setSuccess(false)
+          setError(null)
+        }, 8000)
+        return
+      }
+
       const headers = buildActionHeaders({
         ims: props.ims,
         runtime: props.runtime,
-        preferredAction: 'tax-config'
+        preferredAction: 'tax-config',
+        basicAuthBase64: allActions.runtimeBasicAuthBase64
       })
 
       const actionUrl = getConfiguredActionUrl(props.runtime, 'tax-config')
@@ -156,16 +196,8 @@ const Settings = (props) => {
 
       // Fallback: save to localStorage
       localStorage.setItem('taxByCityConfig', JSON.stringify(settings))
-      
-      // Also save Magento sync settings separately for TaxRateManager
-      localStorage.setItem('magentoSettings', JSON.stringify({
-        syncToMagento: settings.magento_sync_enabled,
-        commerceDomain: settings.magento_commerce_domain,
-        instanceId: settings.magento_instance_id,
-        autoSyncEnabled: settings.auto_sync_enabled,
-        autoSyncInterval: settings.auto_sync_interval || 10
-      }))
-      
+      persistMagentoSettings()
+
       setSuccess(true)
       setError(null)
       setConfigStatus('partial')
@@ -183,10 +215,18 @@ const Settings = (props) => {
     setSuccess(false)
 
     try {
+      if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+        setError(
+          'Adobe sign-in or Runtime Basic auth from the build (.env → inject-runtime-auth-for-web) is required to test the connection.'
+        )
+        return
+      }
+
       const headers = buildActionHeaders({
         ims: props.ims,
         runtime: props.runtime,
-        preferredAction: 'tax-rate'
+        preferredAction: 'tax-rate',
+        basicAuthBase64: allActions.runtimeBasicAuthBase64
       })
 
       // Test tax-rate action (skip tax-config as it has response format issues)
@@ -209,7 +249,8 @@ const Settings = (props) => {
         const headers = buildActionHeaders({
           ims: props.ims,
           runtime: props.runtime,
-          preferredAction: 'tax-rate'
+          preferredAction: 'tax-rate',
+          basicAuthBase64: allActions.runtimeBasicAuthBase64
         })
         const dataActionUrl = getConfiguredActionUrl(props.runtime, 'tax-rate')
         const testResponse = await actionWebInvoke(dataActionUrl, headers, { operation: 'LIST' })

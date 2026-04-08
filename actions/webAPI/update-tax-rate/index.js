@@ -8,9 +8,7 @@ const libDb = require('@adobe/aio-lib-db');
 const { generateAccessToken: aioGenerateAccessToken } = require('@adobe/aio-lib-core-auth');
 const { ObjectId } = require('bson');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
-const { getMagentoScope, getMagentoTokenUrl, getTaxRatesCollection } = require('../lib/config');
-
-const COLLECTION_NAME = getTaxRatesCollection();
+const { getMagentoScope, getMagentoTokenUrl, resolveTaxRatesCollectionName } = require('../lib/config');
 
 /* --------------------------------------------------------------------------
  * MAGENTO CONFIG (params first, then env — same as create-tax-rate webAPI)
@@ -112,6 +110,135 @@ function getMagentoRegionId(stateCodeOrId, countryId = 'US') {
     return US_STATE_TO_REGION_ID[normalizedStateCode] || 0;
   }
   return 0;
+}
+
+/** UI / ABDB often stores full names (e.g. "Hawaii"); Magento search uses numeric region_id. */
+const US_STATE_NAME_TO_CODE = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO',
+  connecticut: 'CT', delaware: 'DE', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID',
+  illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY', louisiana: 'LA',
+  maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN',
+  mississippi: 'MS', missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV',
+  'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+  'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH', oklahoma: 'OK', oregon: 'OR',
+  pennsylvania: 'PA', 'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD',
+  tennessee: 'TN', texas: 'TX', utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA',
+  'west virginia': 'WV', wisconsin: 'WI', wyoming: 'WY', 'district of columbia': 'DC'
+}
+
+function normalizeTaxRegionIdForSearch(existing) {
+  const country = String(existing.tax_country_id || 'US');
+  const raw = existing.tax_region_id;
+  if (raw == null || raw === '' || raw === '*' || raw === 'ALL') return 0;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  const s = String(raw).trim();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  const two = s.length === 2 ? s.toUpperCase() : null;
+  if (two && US_STATE_TO_REGION_ID[two]) return US_STATE_TO_REGION_ID[two];
+  const abbr = US_STATE_NAME_TO_CODE[s.toLowerCase()];
+  if (abbr) return US_STATE_TO_REGION_ID[abbr] || 0;
+  return getMagentoRegionId(s, country);
+}
+
+/**
+ * When Magento tax `code` ≠ extension tax_identifier (common), resolve id by country/postcode/rate/region.
+ */
+async function findMagentoTaxRateIdByFingerprint(params, existing) {
+  const config = getMagentoConfig(params);
+  const inst = String(config.instanceId || '').trim();
+  if (/\.api\.commerce\.adobe\.com$/i.test(String(config.commerceDomain || '')) && !inst) {
+    return null;
+  }
+  const token = await getAccessToken(config);
+  const base = inst
+    ? `https://${config.commerceDomain}/${inst}/V1/taxRates/search`
+    : `https://${config.commerceDomain}/V1/taxRates/search`;
+
+  const country = String(existing.tax_country_id || 'US').trim();
+  const rateNum = Number(existing.rate);
+  if (!Number.isFinite(rateNum)) return null;
+  const wantRegionId = normalizeTaxRegionIdForSearch(existing);
+  const wantCode = String(
+    (existing.code && String(existing.code).trim()) || existing.tax_identifier || ''
+  ).trim();
+  const pc = String(existing.tax_postcode || '').trim();
+  const wantPc = pc && pc !== '*' ? pc : null;
+
+  const runQuery = async (includeRateInApi) => {
+    const sp = {
+      'searchCriteria[filterGroups][0][filters][0][field]': 'tax_country_id',
+      'searchCriteria[filterGroups][0][filters][0][value]': country,
+      'searchCriteria[filterGroups][0][filters][0][condition_type]': 'eq',
+      'searchCriteria[pageSize]': 100
+    };
+    let idx = 1;
+    if (includeRateInApi) {
+      sp[`searchCriteria[filterGroups][0][filters][${idx}][field]`] = 'rate';
+      sp[`searchCriteria[filterGroups][0][filters][${idx}][value]`] = String(rateNum);
+      sp[`searchCriteria[filterGroups][0][filters][${idx}][condition_type]`] = 'eq';
+      idx += 1;
+    }
+    if (wantPc) {
+      sp[`searchCriteria[filterGroups][0][filters][${idx}][field]`] = 'tax_postcode';
+      sp[`searchCriteria[filterGroups][0][filters][${idx}][value]`] = wantPc;
+      sp[`searchCriteria[filterGroups][0][filters][${idx}][condition_type]`] = 'eq';
+      idx += 1;
+    }
+    const response = await axios.get(base, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      params: sp,
+      validateStatus: () => true
+    });
+    if (response.status >= 400) {
+      console.warn('findMagentoTaxRateIdByFingerprint HTTP', response.status, response.data);
+      return []
+    }
+    return response.data?.items || []
+  }
+
+  try {
+    let items = await runQuery(true)
+    if (!items.length) items = await runQuery(false)
+
+    const rateMatches = (item) => Math.abs(Number(item.rate) - rateNum) < 0.0001
+    items = items.filter(rateMatches)
+    if (!items.length) return null
+
+    const scoreRow = (item) => {
+      let score = 0
+      if (wantCode && String(item.code || '').trim() === wantCode) score += 100
+      if (wantRegionId > 0 && Number(item.tax_region_id) === wantRegionId) score += 60
+      if (wantRegionId > 0 && Number(item.region_id) === wantRegionId) score += 60
+      const iname = String(item.region_name || '').toLowerCase()
+      const tr = String(existing.tax_region_id || '').toLowerCase()
+      if (tr && tr !== '*' && tr !== 'all' && iname && (iname.includes(tr) || tr.includes(iname))) {
+        score += 45
+      }
+      if (wantPc && String(item.tax_postcode || '').trim() === wantPc) score += 40
+      return score
+    }
+
+    const ranked = items.map((item) => ({ item, score: scoreRow(item) }))
+    ranked.sort((a, b) => b.score - a.score)
+    const best = ranked[0]
+    if (best.score >= 50 || ranked.length === 1) {
+      const id = best.item.id
+      if (id != null && !Number.isNaN(Number(id))) {
+        console.log(
+          'Resolved Magento tax rate id from fingerprint:',
+          id,
+          'score',
+          best.score,
+          'magento code',
+          best.item.code
+        )
+        return Number(id)
+      }
+    }
+  } catch (e) {
+    console.warn('findMagentoTaxRateIdByFingerprint failed:', e.response?.data || e.message)
+  }
+  return null
 }
 
 function formatMagentoTaxRatePayload(data, existingData) {
@@ -232,33 +359,58 @@ function isMagentoTaxRateSuccessPayload(payload) {
 
 /**
  * Resolve numeric tax rate id from Magento when ABDB row only has code / tax_identifier (legacy sync).
- * GET /V1/taxRates/search with filter field=code.
+ * GET /V1/taxRates/search with filter field=code (eq, then like).
  */
 async function findMagentoTaxRateIdByCode(params, code) {
   if (!code || String(code).trim() === '') return null;
   const config = getMagentoConfig(params);
+  const inst = String(config.instanceId || '').trim();
+  if (/\.api\.commerce\.adobe\.com$/i.test(String(config.commerceDomain || '')) && !inst) {
+    console.warn('findMagentoTaxRateIdByCode: missing instanceId for SaaS REST path');
+    return null;
+  }
   const token = await getAccessToken(config);
-  const base = `https://${config.commerceDomain}/${config.instanceId}/V1/taxRates/search`;
-  const searchParams = {
-    'searchCriteria[filterGroups][0][filters][0][field]': 'code',
-    'searchCriteria[filterGroups][0][filters][0][value]': String(code).trim(),
-    'searchCriteria[filterGroups][0][filters][0][condition_type]': 'eq',
-    'searchCriteria[pageSize]': 20
-  };
-  try {
+  const base = inst
+    ? `https://${config.commerceDomain}/${inst}/V1/taxRates/search`
+    : `https://${config.commerceDomain}/V1/taxRates/search`;
+  const value = String(code).trim();
+
+  const trySearch = async (conditionType, searchValue) => {
+    const searchParams = {
+      'searchCriteria[filterGroups][0][filters][0][field]': 'code',
+      'searchCriteria[filterGroups][0][filters][0][value]': searchValue,
+      'searchCriteria[filterGroups][0][filters][0][condition_type]': conditionType,
+      'searchCriteria[pageSize]': 20
+    };
     const response = await axios.get(base, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json'
       },
-      params: searchParams
+      params: searchParams,
+      validateStatus: () => true
     });
+    if (response.status >= 400) {
+      console.warn('findMagentoTaxRateIdByCode HTTP', response.status, response.data);
+      return null;
+    }
     const items = response.data?.items || [];
     if (!items.length) return null;
     const id = items[0].id;
-    if (id != null && !Number.isNaN(Number(id))) {
-      console.log(`Resolved Magento tax rate id ${id} from code search (${code})`);
-      return Number(id);
+    if (id != null && !Number.isNaN(Number(id))) return Number(id);
+    return null;
+  };
+
+  try {
+    let id = await trySearch('eq', value);
+    if (id != null) {
+      console.log(`Resolved Magento tax rate id ${id} from code eq (${value})`);
+      return id;
+    }
+    id = await trySearch('like', `%${value}%`);
+    if (id != null) {
+      console.log(`Resolved Magento tax rate id ${id} from code like (%${value}%)`);
+      return id;
     }
   } catch (e) {
     console.warn('findMagentoTaxRateIdByCode failed:', e.response?.data || e.message);
@@ -332,7 +484,7 @@ async function updateInMagento(data, identifier, existingData, params = {}) {
     });
 
     return {
-      taxIdentifier: response.data?.tax_identifier || response.data?.code || response.data?.id || taxIdentifier,
+      taxIdentifier: response.data?.tax_identifier || response.data?.code || response.data?.id || identifier,
       response: response.data
     };
   } catch (error) {
@@ -359,21 +511,89 @@ async function updateInMagento(data, identifier, existingData, params = {}) {
   }
 }
 
+/**
+ * ABDB rows that never existed in Commerce (no magento_tax_rate_id, no code match, no fingerprint match)
+ * cannot be PUT-updated. POST /V1/taxRates creates the rate and returns an id for later sync.
+ */
+async function createMagentoTaxRateWhenMissing(previewData, existingDbRow, params) {
+  const config = getMagentoConfig(params);
+  const domain = String(config.commerceDomain || '');
+  const inst = String(config.instanceId || '').trim();
+  if (/\.api\.commerce\.adobe\.com$/i.test(domain) && !inst) {
+    console.warn('createMagentoTaxRateWhenMissing: skip — instanceId required for Adobe Commerce API');
+    return null;
+  }
+
+  const data = {
+    ...previewData,
+    code:
+      previewData.code != null && String(previewData.code).trim() !== ''
+        ? String(previewData.code).trim()
+        : previewData.tax_identifier != null && String(previewData.tax_identifier).trim() !== ''
+          ? String(previewData.tax_identifier).trim()
+          : null
+  };
+
+  const payload = formatMagentoTaxRatePayload(data, existingDbRow);
+  if (!payload.code) {
+    if (data.code) payload.code = data.code;
+    else if (data.tax_identifier) payload.code = String(data.tax_identifier).trim();
+  }
+
+  const token = await getAccessToken(config);
+  const url = `https://${config.commerceDomain}/${inst}/V1/taxRates`;
+
+  console.log('📤 Magento CREATE (extension-only ABDB row):', JSON.stringify({ taxRate: payload }, null, 2));
+
+  try {
+    const response = await axios.post(url, { taxRate: payload }, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      }
+    });
+    const body = response.data;
+    const numericId = body?.id ?? body?.tax_calculation_rate_id ?? body?.tax_rate_id;
+    if (numericId != null) {
+      return { numericId: Number(numericId), response: body };
+    }
+    console.warn('createMagentoTaxRateWhenMissing: response missing id', JSON.stringify(body));
+    return null;
+  } catch (error) {
+    const magentoPayload = error.response?.data;
+    if (error.response?.status === 500 && isMagentoTaxRateSuccessPayload(magentoPayload)) {
+      const numericId =
+        magentoPayload?.id ?? magentoPayload?.tax_calculation_rate_id ?? magentoPayload?.tax_rate_id;
+      if (numericId != null) {
+        return { numericId: Number(numericId), response: magentoPayload };
+      }
+    }
+    console.error(
+      'createMagentoTaxRateWhenMissing:',
+      error.response?.status,
+      magentoPayload || error.message
+    );
+    return null;
+  }
+}
+
 /* --------------------------------------------------------------------------
  * DATABASE (IMS + namespace — same as create-tax-rate webAPI)
  * -------------------------------------------------------------------------- */
-async function initDbWithCtx(dbCtx, region = DEFAULT_REGION) {
+async function initDbWithCtx(dbCtx, region = DEFAULT_REGION, params = {}) {
   const { bearerToken, namespace } = dbCtx;
+  const collectionName = dbCtx.collectionName || resolveTaxRatesCollectionName(params);
   const db = await libDb.init({ token: bearerToken, region, ow: { namespace } });
   const client = await db.connect();
-  const collection = await client.collection(COLLECTION_NAME);
+  const collection = await client.collection(collectionName);
   return { client, collection };
 }
 
-async function findTaxRateDb(dbCtx, filter, region) {
+async function findTaxRateDb(dbCtx, filter, region, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region);
+    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region, params);
     client = dbClient;
     return await collection.findOne(filter);
   } finally {
@@ -381,10 +601,10 @@ async function findTaxRateDb(dbCtx, filter, region) {
   }
 }
 
-async function updateTaxRateDb(dbCtx, filter, data, region) {
+async function updateTaxRateDb(dbCtx, filter, data, region, params = {}) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region);
+    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region, params);
     client = dbClient;
     const result = await collection.updateOne(filter, {
       $set: { ...data, updated_at: new Date() }
@@ -450,6 +670,11 @@ async function runUpdateFlow(params, dbCtx) {
     };
   }
 
+  /** UI sends commerceDomain / instanceId in POST body; OpenWhisk params alone omit them. */
+  const mergedParams = { ...params, ...body };
+
+  dbCtx.collectionName = resolveTaxRatesCollectionName(mergedParams);
+
   const region = body.region || DEFAULT_REGION;
   const taxRate = body.taxRate;
   const docId = body._id || body.id;
@@ -478,7 +703,7 @@ async function runUpdateFlow(params, dbCtx) {
 
   let existing;
   try {
-    existing = await findTaxRateDb(dbCtx, { _id: new ObjectId(String(docId)) }, region);
+    existing = await findTaxRateDb(dbCtx, { _id: new ObjectId(String(docId)) }, region, mergedParams);
   } catch (e) {
     return {
       statusCode: 400,
@@ -528,14 +753,37 @@ async function runUpdateFlow(params, dbCtx) {
 
   // Legacy rows: resolve id from Magento by tax code (same as Admin "Tax Identifier")
   if (!numericIdentifier) {
-    const lookupCode = existing.code || existing.tax_identifier;
-    const resolved = await findMagentoTaxRateIdByCode(params, lookupCode);
+    const lookupCode = (existing.code && String(existing.code).trim()) || existing.tax_identifier;
+    const resolved = await findMagentoTaxRateIdByCode(mergedParams, lookupCode);
+    if (resolved) {
+      numericIdentifier = resolved;
+    }
+  }
+  // Extension tax_identifier often differs from Magento's internal `code` — match by location + rate
+  if (!numericIdentifier) {
+    const resolved = await findMagentoTaxRateIdByFingerprint(mergedParams, existing);
     if (resolved) {
       numericIdentifier = resolved;
     }
   }
 
-  // CRITICAL: Magento API requires numeric ID in the request body for updates
+  let createdMagentoResponse = null;
+  if (!numericIdentifier) {
+    const previewForCreate = { ...existing, ...taxRate };
+    if (previewForCreate.code == null || String(previewForCreate.code).trim() === '') {
+      if (previewForCreate.tax_identifier != null && String(previewForCreate.tax_identifier).trim() !== '') {
+        previewForCreate.code = String(previewForCreate.tax_identifier).trim();
+      }
+    }
+    const created = await createMagentoTaxRateWhenMissing(previewForCreate, existing, mergedParams);
+    if (created?.numericId != null && !Number.isNaN(created.numericId)) {
+      numericIdentifier = created.numericId;
+      createdMagentoResponse = created.response;
+      console.log('✅ Created tax rate in Magento (ABDB-only row); id=', numericIdentifier);
+    }
+  }
+
+  // CRITICAL: Magento API requires numeric ID in the request body for updates (or we just created one above)
   if (!numericIdentifier) {
     return {
       statusCode: 400,
@@ -582,8 +830,20 @@ async function runUpdateFlow(params, dbCtx) {
     delete mergedData.code;
   }
 
-  // Update in Magento (numeric ID in body per Magento API)
-  const magento = await updateInMagento(mergedData, identifierToUse, existing, { ...params, ...body });
+  let magento;
+  if (createdMagentoResponse) {
+    magento = {
+      taxIdentifier:
+        createdMagentoResponse.tax_identifier ||
+        createdMagentoResponse.code ||
+        mergedData.code ||
+        mergedData.tax_identifier ||
+        identifierToUse,
+      response: createdMagentoResponse
+    };
+  } else {
+    magento = await updateInMagento(mergedData, identifierToUse, existing, mergedParams);
+  }
 
   // Format tax identifier
   const formatTaxIdentifier = (country, state, rate, customCode) => {
@@ -669,7 +929,7 @@ async function runUpdateFlow(params, dbCtx) {
     code: taxRate.code !== undefined ? taxRate.code : existing.code
   };
 
-  await updateTaxRateDb(dbCtx, { _id: existing._id }, finalTaxRate, region);
+  await updateTaxRateDb(dbCtx, { _id: existing._id }, finalTaxRate, region, mergedParams);
 
   return {
     statusCode: 200,
@@ -715,7 +975,11 @@ async function main(params) {
     };
   }
 
-  const dbCtx = { bearerToken: authResult.accessToken, namespace: authResult.namespace };
+  const dbCtx = {
+    bearerToken: authResult.accessToken,
+    namespace: authResult.namespace,
+    collectionName: resolveTaxRatesCollectionName(params)
+  };
 
   try {
     return await runUpdateFlow(params, dbCtx);

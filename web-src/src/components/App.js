@@ -2,10 +2,29 @@
 * <license header>
 */
 
+/**
+ * Root React tree: Spectrum Provider, HashRouter, layout grid (header + SideBar + content).
+ *
+ * Routing: Routes below map URL paths to screens. Nav links are declared in SideBar.js (navItems).
+ *
+ * Auth:
+ * - ims.token / ims.org from Experience Cloud shell `runtime` events when embedded with Exc.
+ * - Else: Admin UI SDK register() + attach({ id: extensionId }) to read sharedContext imsToken
+ *   (extensionId must match src/admin-ui/actions/registration and Constants.js).
+ * - Runtime Web API calls can also use Basic auth from generatedRuntimeAuth.js when IMS is absent.
+ *
+ * Commerce menu ↔ this SPA: Admin loads the extension’s web `impl`
+ * (src/admin-ui/ext.config.yaml, referenced as commerce/backend-ui/1 in app.config.yaml);
+ * registration action returns menuItems + page; the iframe URL is the deployed App Builder static host.
+ */
+
 import React, { useState, useEffect } from 'react'
 import { Provider, defaultTheme, Grid, View } from '@adobe/react-spectrum'
 import ErrorBoundary from 'react-error-boundary'
 import { HashRouter as Router, Routes, Route } from 'react-router-dom'
+import { register, attach } from '@adobe/uix-guest'
+import { extensionId } from './Constants'
+import { hasRuntimeBasicConfigured } from '../runtimeConfig'
 import SideBar from './SideBar'
 import { Home } from './Home'
 import TaxRateManager from './TaxRateManager'
@@ -17,10 +36,116 @@ function App (props) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
   const [ims, setIms] = useState(() => props.ims || {})
+  const isIframe = (() => {
+    try {
+      return window.self !== window.top
+    } catch (e) {
+      return true
+    }
+  })()
+  const hasImsToken = typeof ims?.token === 'string' && ims.token.trim() !== ''
+  /** Bump when Settings saves magentoSettings so the chip re-reads localStorage (same-tab). */
+  const [magentoSettingsRevision, setMagentoSettingsRevision] = useState(0)
+  const hasBasicAuth =
+    magentoSettingsRevision >= 0 && hasRuntimeBasicConfigured()
+  /** Last Admin UI SDK attach outcome (shown when ims:no). */
+  const [imsAttachDiag, setImsAttachDiag] = useState(null)
+
+  useEffect(() => {
+    const bump = () => setMagentoSettingsRevision((n) => n + 1)
+    window.addEventListener('taxbycity-magento-settings', bump)
+    return () => window.removeEventListener('taxbycity-magento-settings', bump)
+  }, [])
 
   useEffect(() => {
     setIms(props.ims || {})
   }, [props.ims?.token, props.ims?.org, props.ims?.profile])
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await register({ id: extensionId, methods: {} })
+      } catch (e) {
+        console.warn('Admin UI SDK register skipped:', e?.message || e)
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (ims.token) return
+    let cancelled = false
+    let attempts = 0
+    const maxAttempts = 12
+    const timerRef = { current: null }
+    let receivedToken = false
+    let inFlight = false
+
+    const stopRetries = () => {
+      if (timerRef.current != null) {
+        window.clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+    }
+
+    const tryAttach = async () => {
+      if (cancelled || receivedToken || attempts >= maxAttempts || inFlight) return
+      inFlight = true
+      attempts += 1
+      try {
+        const guestConnection = await attach({ id: extensionId, timeout: 120000 })
+        const token = guestConnection?.sharedContext?.get('imsToken')
+        const orgId = guestConnection?.sharedContext?.get('imsOrgId')
+        if (!cancelled && token && String(token).trim() !== '') {
+          receivedToken = true
+          stopRetries()
+          setImsAttachDiag({ attempt: attempts, outcome: 'ok', message: 'imsToken received from Admin UI SDK' })
+          setIms((prev) => ({
+            ...prev,
+            token: String(token).trim(),
+            org: orgId != null ? orgId : prev.org
+          }))
+        } else if (!cancelled) {
+          const msg =
+            'attach ok but sharedContext imsToken is empty — check Commerce extension registration, Refresh registrations, extension id matches Constants.js'
+          console.warn(
+            `[TaxByCity] Admin UI SDK attach: ${msg}`,
+            { extensionId, attempt: attempts, maxAttempts, imsOrgId: orgId }
+          )
+          setImsAttachDiag({ attempt: attempts, outcome: 'attached_missing_token', message: msg })
+        }
+      } catch (err) {
+        const msg = err?.message != null ? String(err.message) : String(err)
+        console.warn(
+          `[TaxByCity] Admin UI SDK attach failed (attempt ${attempts}/${maxAttempts}, extensionId=${extensionId}):`,
+          msg,
+          err
+        )
+        if (!cancelled) {
+          setImsAttachDiag({ attempt: attempts, outcome: 'error', message: msg })
+        }
+      } finally {
+        inFlight = false
+      }
+      if (!cancelled && !receivedToken && attempts >= maxAttempts) {
+        const finalMsg =
+          'No IMS token after retries. Runtime Basic auth still works when the web bundle was built with RUNTIME_AUTH_BASE64 or RUNTIME_USERNAME/PASSWORD in .env (inject-runtime-auth-for-web).'
+        console.warn(`[TaxByCity] ${finalMsg}`, { extensionId })
+        setImsAttachDiag({ attempt: maxAttempts, outcome: 'gave_up', message: finalMsg })
+        stopRetries()
+      }
+    }
+
+    tryAttach()
+    timerRef.current = window.setInterval(() => {
+      if (cancelled || receivedToken) return
+      tryAttach()
+    }, 1000)
+
+    return () => {
+      cancelled = true
+      stopRetries()
+    }
+  }, [ims.token])
 
   useEffect(() => {
     const rt = props.runtime
@@ -72,9 +197,6 @@ function App (props) {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
-
-  console.log('runtime object:', props.runtime)
-  console.log('ims object:', ims)
 
   return (
     <ErrorBoundary onError={onError} FallbackComponent={fallbackComponent}>
@@ -158,6 +280,63 @@ function App (props) {
                   cursor: 'pointer',
                   borderRadius: '4px'
                 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-end',
+                      gap: '2px',
+                      marginRight: '8px',
+                      maxWidth: isMobile ? 140 : 320
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '3px 8px',
+                        borderRadius: '999px',
+                        backgroundColor: '#f3f4f6',
+                        color: '#374151',
+                        fontSize: '11px',
+                        fontWeight: 600
+                      }}
+                      title={
+                        hasImsToken
+                          ? 'Runtime auth: OK'
+                          : [
+                            'Runtime auth status',
+                            imsAttachDiag?.outcome && `attach: ${imsAttachDiag.outcome}`,
+                            imsAttachDiag?.message
+                          ]
+                            .filter(Boolean)
+                            .join('\n')
+                      }
+                    >
+                      <span>{`iframe:${isIframe ? 'yes' : 'no'}`}</span>
+                      <span>{`ims:${hasImsToken ? 'yes' : 'no'}`}</span>
+                      <span>{`basic:${hasBasicAuth ? 'yes' : 'no'}`}</span>
+                    </div>
+                    {!hasImsToken && imsAttachDiag?.message && !isMobile && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 500,
+                          color: imsAttachDiag.outcome === 'ok' ? '#047857' : '#b45309',
+                          lineHeight: 1.25,
+                          textAlign: 'right',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical'
+                        }}
+                      >
+                        {imsAttachDiag.message}
+                      </span>
+                    )}
+                  </div>
                   <div style={{
                     width: '32px',
                     height: '32px',

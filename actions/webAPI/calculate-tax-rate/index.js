@@ -5,9 +5,7 @@
 
 const https = require('https');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
-const { getDbServiceUrlTemplate, getTaxRatesCollection } = require('../lib/config');
-
-const COLLECTION_NAME = getTaxRatesCollection();
+const { getDbServiceUrlTemplate, resolveTaxRatesCollectionName } = require('../lib/config');
 const DB_SERVICE_URL_TEMPLATE = getDbServiceUrlTemplate();
 
 function dbFindWithBearerToken(namespace, region, bearerToken, collectionName, filter, options) {
@@ -107,7 +105,8 @@ async function findMatchingTaxRates(location, config, region, params, dbCtx) {
   };
   if (state) filter.tax_region_id = state;
 
-  const raw = await dbFindWithBearerToken(namespace, region, bearerToken, COLLECTION_NAME, filter, { limit: 500 });
+  const collectionName = dbCtx.collectionName || resolveTaxRatesCollectionName(params);
+  const raw = await dbFindWithBearerToken(namespace, region, bearerToken, collectionName, filter, { limit: 500 });
   const allRates = Array.isArray(raw) ? raw : raw?.cursor?.firstBatch || raw?.documents || [];
 
   const exactMatches = [];
@@ -405,7 +404,11 @@ async function main(params) {
       };
     }
     const { accessToken, namespace } = authResult;
-    const dbCtx = { bearerToken: accessToken, namespace };
+    const dbCtx = {
+      bearerToken: accessToken,
+      namespace,
+      collectionName: resolveTaxRatesCollectionName(params)
+    };
 
     let location;
     let config;

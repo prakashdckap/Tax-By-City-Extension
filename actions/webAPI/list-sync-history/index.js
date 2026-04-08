@@ -1,6 +1,6 @@
 const libDb = require('@adobe/aio-lib-db');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime');
-const { getDefaultRegion, getSyncHistoryCollection } = require('../lib/config');
+const { getDefaultRegion, resolveSyncHistoryCollectionName } = require('../lib/config');
 
 function parseQuery(params) {
   const query = {};
@@ -42,14 +42,7 @@ async function main(params) {
     const auth = await resolveAuthAndNamespace(params);
     if (auth.error) return { statusCode: auth.error.statusCode, headers: CORS, body: auth.error.body };
     const region = getDefaultRegion(params) || DEFAULT_REGION;
-    const collectionName = getSyncHistoryCollection(params);
-    if (!collectionName) {
-      return {
-        statusCode: 500,
-        headers: CORS,
-        body: { status: 'Error', message: 'SYNC_HISTORY_COLLECTION is not configured.' }
-      };
-    }
+    const collectionName = resolveSyncHistoryCollectionName(params);
     const db = await libDb.init({
       token: auth.accessToken,
       region,

@@ -9,9 +9,7 @@ const libDb = require('@adobe/aio-lib-db');
 const { generateAccessToken: aioGenerateAccessToken } = require('@adobe/aio-lib-core-auth');
 const { ObjectId } = require('bson');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
-const { getMagentoScope, getMagentoTokenUrl, getTaxRatesCollection } = require('../lib/config');
-
-const COLLECTION_NAME = getTaxRatesCollection();
+const { getMagentoScope, getMagentoTokenUrl, resolveTaxRatesCollectionName } = require('../lib/config');
 
 /* --------------------------------------------------------------------------
  * MAGENTO (params + env, same as create-tax-rate webAPI)
@@ -82,11 +80,12 @@ async function getMagentoAccessToken(config) {
   throw new Error('Unable to obtain Magento access token');
 }
 
-async function initDbWithCtx(dbCtx, region = DEFAULT_REGION) {
+async function initDbWithCtx(dbCtx, region = DEFAULT_REGION, params = {}) {
   const { bearerToken, namespace } = dbCtx;
+  const name = dbCtx.collectionName || resolveTaxRatesCollectionName(params);
   const db = await libDb.init({ token: bearerToken, region, ow: { namespace } });
   const client = await db.connect();
-  const collection = await client.collection(COLLECTION_NAME);
+  const collection = await client.collection(name);
   return { client, collection };
 }
 
@@ -122,7 +121,7 @@ async function deleteFromMagento(taxIdentifier, params = {}) {
 async function findTaxRateById(taxRateId, region, params, dbCtx) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region);
+    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region, params);
     client = dbClient;
 
     let objectId;
@@ -186,7 +185,7 @@ async function deleteTaxRateById(taxRateId, region, params, dbCtx) {
       }
     }
 
-    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region);
+    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region, params);
     client = dbClient;
 
     let objectId;
@@ -341,7 +340,11 @@ async function main(params) {
     };
   }
 
-  const dbCtx = { bearerToken: authResult.accessToken, namespace: authResult.namespace };
+  const dbCtx = {
+    bearerToken: authResult.accessToken,
+    namespace: authResult.namespace,
+    collectionName: resolveTaxRatesCollectionName(params)
+  };
 
   try {
     return await runDeleteFlow(params, dbCtx);

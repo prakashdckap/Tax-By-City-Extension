@@ -23,7 +23,12 @@ import {
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
-import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
+import {
+  buildActionHeaders,
+  getConfiguredActionUrl,
+  hasWebActionAuth,
+  rewriteTaxByCityStaticWebUrlToRuntime
+} from '../runtimeConfig'
 
 const Sync = (props) => {
   const [syncing, setSyncing] = useState(false)
@@ -61,6 +66,23 @@ const Sync = (props) => {
   // Load sync history whenever the page is shown / auth changes (last 20 from App Builder)
   useEffect(() => {
     loadSyncHistory()
+    const onMagentoSettings = () => {
+      const saved = localStorage.getItem('magentoSettings')
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          setMagentoSettings({
+            commerceDomain: parsed.commerceDomain || '',
+            instanceId: parsed.instanceId || ''
+          })
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      loadSyncHistory()
+    }
+    window.addEventListener('taxbycity-magento-settings', onMagentoSettings)
+    return () => window.removeEventListener('taxbycity-magento-settings', onMagentoSettings)
   }, [props.ims?.token, props.ims?.org, props.runtime])
 
   const getActionUrl = (name, fallback) => {
@@ -134,6 +156,14 @@ const Sync = (props) => {
   const loadSyncHistory = async () => {
     setHistoryLoading(true)
     setHistoryError(null)
+    if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+      setSyncHistory([])
+      setHistoryError(
+        'Sign in to Adobe or rebuild the app with Runtime credentials in .env (inject-runtime-auth-for-web) so list-sync-history can run.'
+      )
+      setHistoryLoading(false)
+      return
+    }
     try {
       const url = getActionUrl('list-sync-history')
       if (!url) {
@@ -159,6 +189,13 @@ const Sync = (props) => {
   }
 
   const handleSyncFromMagento = async () => {
+    if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+      setError(
+        'Sign in to Adobe or use a build that embeds Runtime Basic auth from .env (RUNTIME_AUTH_BASE64 or RUNTIME_USERNAME/PASSWORD) before syncing.'
+      )
+      return
+    }
+
     setSyncing(true)
     setMagentoSyncIndeterminate(true)
     setError(null)
@@ -177,8 +214,7 @@ const Sync = (props) => {
 
       const syncActionUrl =
         getActionUrl('sync-tax-rates') ||
-        allActions['tax-by-city/sync-tax-rates'] ||
-        SYNC_TAX_RATES_FALLBACK_URL
+        allActions['tax-by-city/sync-tax-rates']
       if (!syncActionUrl) {
         throw new Error('sync-tax-rates action URL not found.')
       }
@@ -198,7 +234,27 @@ const Sync = (props) => {
         payload.instanceId = magentoSettings.instanceId
       }
 
-      const syncResponse = await actionWebInvoke(syncActionUrl, headers, payload, { method: 'POST' })
+      let syncResponse
+      try {
+        syncResponse = await actionWebInvoke(syncActionUrl, headers, payload, { method: 'POST' })
+      } catch (invokeErr) {
+        const msg = String(invokeErr?.message || invokeErr)
+        const isGatewayFormatError = /message\/http/i.test(msg)
+        if (!isGatewayFormatError) throw invokeErr
+
+        // Do NOT use raw /api/v1/namespaces/.../actions/... from the browser — it is not a web action
+        // and returns errors like "Cannot initialize the action more than once." Retry the same
+        // web path on *.adobeioruntime.net (OpenWhisk web export + CORS).
+        const runtimeWebUrl = rewriteTaxByCityStaticWebUrlToRuntime(syncActionUrl)
+        if (!runtimeWebUrl || runtimeWebUrl === syncActionUrl) throw invokeErr
+
+        addLog('Static edge returned message/http. Retrying POST on adobeioruntime.net web action URL…', 'warning')
+        addLog(`POST ${runtimeWebUrl}`, 'info')
+        const runtimeHeaders = { ...headers }
+        delete runtimeHeaders['x-runtime-namespace']
+        delete runtimeHeaders['X-Runtime-Namespace']
+        syncResponse = await actionWebInvoke(runtimeWebUrl, runtimeHeaders, payload, { method: 'POST' })
+      }
 
       if (progressTimer) {
         clearInterval(progressTimer)
@@ -280,24 +336,29 @@ const Sync = (props) => {
                 Pull tax rates from Magento into App Builder (sync-tax-rates).
               </Text>
 
-              {(!magentoSettings.commerceDomain || !props.ims?.token) && (
-                <View 
-                  padding="size-200" 
-                  backgroundColor="yellow-50"
-                  borderRadius="regular"
-                  borderWidth="thin"
-                  borderColor="yellow-300"
-                  marginBottom="size-200"
-                >
-                  <Text size="S" UNSAFE_style={{ color: '#d97706' }}>
-                    {!magentoSettings.commerceDomain && !props.ims?.token 
-                      ? '⚠️ Please configure Commerce Domain in Configuration page and ensure you are logged in to Adobe.'
-                      : !magentoSettings.commerceDomain 
-                        ? 'ℹ️ Commerce domain is not saved in Configuration. Magento → Extension will use MAGENTO_COMMERCE_DOMAIN / MAGENTO_INSTANCE_ID from the deployed action environment when set.'
-                        : '⚠️ IMS token not available. Please ensure you are logged in to Adobe.'}
-                  </Text>
-                </View>
-              )}
+              {(() => {
+                const hasActionAuth = hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)
+                const hasDomain = Boolean(String(magentoSettings.commerceDomain || '').trim())
+                if (hasActionAuth && hasDomain) return null
+                return (
+                  <View
+                    padding="size-200"
+                    backgroundColor="yellow-50"
+                    borderRadius="regular"
+                    borderWidth="thin"
+                    borderColor="yellow-300"
+                    marginBottom="size-200"
+                  >
+                    <Text size="S" UNSAFE_style={{ color: '#d97706' }}>
+                      {!hasActionAuth && !hasDomain
+                        ? '⚠️ Configure Commerce Domain on Configuration (optional if MAGENTO_COMMERCE_DOMAIN is set on the action). For auth: sign in to Adobe, or ensure the extension was built with RUNTIME_AUTH_BASE64 from .env (see inject-runtime-auth-for-web), or save an override under Configuration.'
+                        : !hasActionAuth
+                          ? '⚠️ No App Builder auth detected. Production builds should embed RUNTIME_AUTH_BASE64 via scripts/inject-runtime-auth-for-web.mjs before deploy; Commerce iframe often has no IMS user token.'
+                          : 'ℹ️ Commerce domain is not saved in Configuration. Magento → Extension can use MAGENTO_COMMERCE_DOMAIN / MAGENTO_INSTANCE_ID from the deployed action when set.'}
+                    </Text>
+                  </View>
+                )
+              })()}
 
               <Flex direction="row" gap="size-200" wrap>
                 <button
@@ -478,7 +539,7 @@ const Sync = (props) => {
                         <Flex direction="column" gap="size-50">
                           {syncResult.errors.map((err, idx) => (
                             <Text key={idx} size="S" UNSAFE_style={{ color: '#dc2626' }}>
-                              • {err.rateId || 'Rate'}: {err.error}
+                              • {err.tax_identifier || err.rateId || 'Rate'}: {err.error}
                             </Text>
                           ))}
                         </Flex>

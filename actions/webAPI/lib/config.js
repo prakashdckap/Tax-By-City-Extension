@@ -43,8 +43,22 @@ function getTaxRatesCollection(params = {}) {
   return String(getParamOrEnv(params, 'TAX_RATES_COLLECTION', '')).trim();
 }
 
+/** Use at request time — avoids empty collection when env is not set at module load (ABDB `collection//find`). */
+function resolveTaxRatesCollectionName(params = {}) {
+  const n = getTaxRatesCollection(params);
+  if (n) return n;
+  return 'tax_rates';
+}
+
 function getSyncHistoryCollection(params = {}) {
   return String(getParamOrEnv(params, 'SYNC_HISTORY_COLLECTION', '')).trim();
+}
+
+/** Request-time name for ABDB; avoids empty collection at module load (insert failures / bad responses). */
+function resolveSyncHistoryCollectionName(params = {}) {
+  const n = getSyncHistoryCollection(params);
+  if (n) return n;
+  return 'sync_history';
 }
 
 function getDbServiceUrlTemplate(params = {}) {
@@ -94,7 +108,9 @@ module.exports = {
   getRuntimeAuthBase64,
   getDefaultRegion,
   getTaxRatesCollection,
+  resolveTaxRatesCollectionName,
   getSyncHistoryCollection,
+  resolveSyncHistoryCollectionName,
   getDbServiceUrlTemplate,
   getMagentoTokenUrl,
   getMagentoScope,

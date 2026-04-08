@@ -15,7 +15,7 @@ import {
 } from '@adobe/react-spectrum'
 import actionWebInvoke from '../utils'
 import allActions from '../config.json'
-import { buildActionHeaders, getConfiguredActionUrl } from '../runtimeConfig'
+import { buildActionHeaders, getConfiguredActionUrl, hasWebActionAuth } from '../runtimeConfig'
 
 const SYNC_CONNECTED = 'Connected'
 const SYNC_CONNECTED_PREVIEW = 'Connected (runtime auth)'
@@ -43,6 +43,16 @@ const Dashboard = (props) => {
 
   const loadStats = async () => {
     setLoading(true)
+
+    if (!hasWebActionAuth(props.ims, allActions.runtimeBasicAuthBase64)) {
+      setLoading(false)
+      setStats({
+        totalTaxRates: 0,
+        lastSync: 'Never',
+        syncStatus: SYNC_NOT_SIGNED_IN
+      })
+      return
+    }
 
     let actionUrl
     actionUrl = getConfiguredActionUrl(props.runtime, 'list-tax-rates')

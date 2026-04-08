@@ -2,6 +2,14 @@
 * Professional Sidebar Component for Tax By City
 */
 
+/**
+ * In-application navigation only (dark rail beside content).
+ *
+ * These NavLinks drive HashRouter paths declared in App.js (<Routes>). They are separate from
+ * Adobe Commerce Admin’s global menu; that menu is registered via
+ * src/admin-ui/actions/registration/index.js (menuItems / parent section).
+ */
+
 import React from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Flex, Heading, View } from '@adobe/react-spectrum'

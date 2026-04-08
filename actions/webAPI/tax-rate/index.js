@@ -10,7 +10,8 @@ const {
   getMagentoImsOrgId,
   getRuntimeApiHost,
   getRuntimeAuthBase64,
-  getRuntimeNamespace
+  getRuntimeNamespace,
+  resolveTaxRatesCollectionName
 } = require('../lib/config');
 
 function manageTaxActionUrl(params) {
@@ -483,7 +484,11 @@ async function main(params) {
       body: authResult.error.body
     };
   }
-  const dbCtx = { bearerToken: authResult.accessToken, namespace: authResult.namespace };
+  const dbCtx = {
+    bearerToken: authResult.accessToken,
+    namespace: authResult.namespace,
+    collectionName: resolveTaxRatesCollectionName(params)
+  };
 
   if (method === 'GET') {
     return await handleGetRequest(params, dbCtx);

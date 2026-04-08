@@ -12,17 +12,16 @@
 
 const libDb = require('@adobe/aio-lib-db');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
-const { getParamOrEnv, getTaxRatesCollection } = require('../lib/config');
-
-const COLLECTION_NAME = getTaxRatesCollection();
+const { getParamOrEnv, resolveTaxRatesCollectionName } = require('../lib/config');
 const DEFAULT_LIMIT = Number.parseInt(getParamOrEnv({}, 'DEFAULT_LIMIT', ''), 10);
 const MAX_LIMIT = Number.parseInt(getParamOrEnv({}, 'MAX_LIMIT', ''), 10);
 
-async function initDbWithCtx(dbCtx, region = DEFAULT_REGION) {
+async function initDbWithCtx(dbCtx, region = DEFAULT_REGION, queryParams = {}) {
   const { bearerToken, namespace } = dbCtx;
+  const name = dbCtx.collectionName || resolveTaxRatesCollectionName(queryParams);
   const db = await libDb.init({ token: bearerToken, region, ow: { namespace } });
   const client = await db.connect();
-  const collection = await client.collection(COLLECTION_NAME);
+  const collection = await client.collection(name);
   return { client, collection };
 }
 
@@ -182,10 +181,10 @@ function normalizeDoc(doc) {
   return out;
 }
 
-async function findTaxRateByLocation(country, state, zipcode, city, region, dbCtx) {
+async function findTaxRateByLocation(country, state, zipcode, city, region, dbCtx, queryParams) {
   let client;
   try {
-    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region);
+    const { client: dbClient, collection } = await initDbWithCtx(dbCtx, region, queryParams);
     client = dbClient;
 
     const filter = buildFilterAndMatch(country, state, zipcode, city);
@@ -223,6 +222,8 @@ async function runGetFlow(params, dbCtx) {
 
   const { country, state, zipcode, city, region } = resolveLocationParams(merged);
 
+  dbCtx.collectionName = resolveTaxRatesCollectionName({ ...params, ...merged });
+
   if (!country) {
     return {
       statusCode: 400,
@@ -245,7 +246,7 @@ async function runGetFlow(params, dbCtx) {
     };
   }
 
-  const taxRateResult = await findTaxRateByLocation(country, state, zipcode, city, region, dbCtx);
+  const taxRateResult = await findTaxRateByLocation(country, state, zipcode, city, region, dbCtx, merged);
 
   if (!taxRateResult || (Array.isArray(taxRateResult) && taxRateResult.length === 0)) {
     return {
@@ -329,7 +330,11 @@ async function main(params) {
     };
   }
 
-  const dbCtx = { bearerToken: authResult.accessToken, namespace: authResult.namespace };
+  const dbCtx = {
+    bearerToken: authResult.accessToken,
+    namespace: authResult.namespace,
+    collectionName: resolveTaxRatesCollectionName(params)
+  };
 
   try {
     return await runGetFlow(params, dbCtx);

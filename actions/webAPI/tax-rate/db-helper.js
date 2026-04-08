@@ -5,9 +5,7 @@
 
 const libDb = require('@adobe/aio-lib-db');
 const { ObjectId } = require('bson');
-const { getDefaultRegion, getTaxRatesCollection } = require('../lib/config');
-
-const COLLECTION_NAME = getTaxRatesCollection();
+const { getDefaultRegion, resolveTaxRatesCollectionName } = require('../lib/config');
 const DEFAULT_REGION = getDefaultRegion();
 
 /**
@@ -19,7 +17,7 @@ async function initDbWithCtx(dbCtx, region = DEFAULT_REGION) {
   try {
     const db = await libDb.init({ token: bearerToken, region, ow: { namespace } });
     const client = await db.connect();
-    const collectionName = dbCtx?.collectionName || COLLECTION_NAME;
+    const collectionName = dbCtx?.collectionName || resolveTaxRatesCollectionName();
     const collection = await client.collection(collectionName);
     return { client, collection };
   } catch (error) {
@@ -472,7 +470,6 @@ module.exports = {
   deleteManyTaxRates,
   findTaxRateByLocation,
   toObjectId,
-  COLLECTION_NAME,
   DEFAULT_REGION
 };
 

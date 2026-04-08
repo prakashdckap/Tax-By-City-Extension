@@ -275,6 +275,9 @@ application:
             function: actions/webAPI/sync-tax-rates/index.js
             web: 'yes'
             runtime: nodejs:22
+            limits:
+              timeout: 300000
+              memory: 512
             inputs:
               LOG_LEVEL: debug
               DEFAULT_REGION: $DEFAULT_REGION
@@ -319,11 +322,7 @@ modules:
     web:
       src: web-src
       entry: index.html
-    menu:
-      - id: tax-by-city
-        label: Tax By City
-        parent: system
 
 extensions:
-  commerce/extensibility/1:
-    $include: src/commerce-extensibility-1/ext.config.yaml
+  commerce/backend-ui/1:
+    $include: src/admin-ui/ext.config.yaml
