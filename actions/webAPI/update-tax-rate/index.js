@@ -13,12 +13,56 @@ const { getMagentoScope, getMagentoTokenUrl, resolveTaxRatesCollectionName } = r
 /* --------------------------------------------------------------------------
  * MAGENTO CONFIG (params first, then env — same as create-tax-rate webAPI)
  * -------------------------------------------------------------------------- */
-function getMagentoConfig(params = {}) {
-  const p = (k) => (params[k] != null ? params[k] : process.env[k]);
-  const commerceDomain = String(p('MAGENTO_COMMERCE_DOMAIN') || p('commerceDomain') || '')
+function normalizeCommerceDomainForUrl(raw) {
+  let d = String(raw || '').trim();
+  d = d.replace(/^https?:\/\//i, '');
+  d = d.replace(/\/+$/, '');
+  return d;
+}
+
+/**
+ * Adobe Commerce as a Cloud Service: REST is always
+ * `https://<host>/<tenant-id>/V1/...`. An empty tenant produces `https://host//V1/...` (404).
+ */
+function buildMagentoRestApiBaseUrl(config) {
+  const domain = normalizeCommerceDomainForUrl(config.commerceDomain);
+  if (!domain) {
+    throw new Error('Commerce domain is missing. Set commerceDomain or MAGENTO_COMMERCE_DOMAIN.');
+  }
+  const inst = String(config.instanceId || '')
     .trim()
-    .replace(/\.admin\.commerce\.adobe\.com$/i, '.api.commerce.adobe.com');
-  const instanceId = p('MAGENTO_INSTANCE_ID') || p('instanceId');
+    .replace(/^\/+|\/+$/g, '');
+  const isSaaS = /\.api\.commerce\.adobe\.com$/i.test(domain);
+  if (isSaaS) {
+    if (!inst) {
+      throw new Error(
+        'Adobe Commerce SaaS REST requires the tenant (instance) id in the URL path. ' +
+          'Set instanceId / magento_instance_id in App Configuration, or MAGENTO_INSTANCE_ID on the update-tax-rate action. ' +
+          'Example: https://na1.api.commerce.adobe.com/<tenant-id>/V1/taxRates'
+      );
+    }
+    return `https://${domain}/${inst}`;
+  }
+  return inst ? `https://${domain}/${inst}` : `https://${domain}`;
+}
+
+function buildMagentoTaxRatesSearchUrl(config) {
+  return `${buildMagentoRestApiBaseUrl(config)}/V1/taxRates/search`;
+}
+
+function buildMagentoTaxRatesResourceUrl(config) {
+  return `${buildMagentoRestApiBaseUrl(config)}/V1/taxRates`;
+}
+
+function getMagentoConfig(params = {}) {
+  const p = (k) => (params[k] != null && params[k] !== '' ? params[k] : process.env[k]);
+  let commerceDomain = String(
+    p('MAGENTO_COMMERCE_DOMAIN') || p('commerceDomain') || p('magento_commerce_domain') || ''
+  ).trim();
+  commerceDomain = normalizeCommerceDomainForUrl(commerceDomain);
+  commerceDomain = commerceDomain.replace(/\.admin\.commerce\.adobe\.com$/i, '.api.commerce.adobe.com');
+  const instanceId =
+    p('MAGENTO_INSTANCE_ID') || p('instanceId') || p('magento_instance_id') || '';
   const clientId = p('ADOBE_CLIENT_ID') || p('IMS_OAUTH_S2S_CLIENT_ID');
   const clientSecret = p('ADOBE_CLIENT_SECRET') || p('IMS_OAUTH_S2S_CLIENT_SECRET');
   const orgId = p('ADOBE_ORG_ID') || p('IMS_OAUTH_S2S_ORG_ID');
@@ -32,7 +76,7 @@ function getMagentoConfig(params = {}) {
 
   return {
     commerceDomain,
-    instanceId: instanceId || '',
+    instanceId: String(instanceId || '').trim(),
     clientId,
     clientSecret,
     orgId,
@@ -150,9 +194,13 @@ async function findMagentoTaxRateIdByFingerprint(params, existing) {
     return null;
   }
   const token = await getAccessToken(config);
-  const base = inst
-    ? `https://${config.commerceDomain}/${inst}/V1/taxRates/search`
-    : `https://${config.commerceDomain}/V1/taxRates/search`;
+  let base;
+  try {
+    base = buildMagentoTaxRatesSearchUrl(config);
+  } catch (e) {
+    console.warn('findMagentoTaxRateIdByFingerprint:', e.message);
+    return null;
+  }
 
   const country = String(existing.tax_country_id || 'US').trim();
   const rateNum = Number(existing.rate);
@@ -370,9 +418,13 @@ async function findMagentoTaxRateIdByCode(params, code) {
     return null;
   }
   const token = await getAccessToken(config);
-  const base = inst
-    ? `https://${config.commerceDomain}/${inst}/V1/taxRates/search`
-    : `https://${config.commerceDomain}/V1/taxRates/search`;
+  let base;
+  try {
+    base = buildMagentoTaxRatesSearchUrl(config);
+  } catch (e) {
+    console.warn('findMagentoTaxRateIdByCode:', e.message);
+    return null;
+  }
   const value = String(code).trim();
 
   const trySearch = async (conditionType, searchValue) => {
@@ -421,7 +473,15 @@ async function findMagentoTaxRateIdByCode(params, code) {
 async function updateInMagento(data, identifier, existingData, params = {}) {
   const config = getMagentoConfig(params);
   const token = await getAccessToken(config);
-  
+  let url;
+  try {
+    url = buildMagentoTaxRatesResourceUrl(config);
+  } catch (e) {
+    const err = new Error(e.message);
+    err.statusCode = 400;
+    throw err;
+  }
+
   // Identifier can be numeric ID or code (string)
   // Try numeric first, but accept string codes too
   let taxRateId = identifier;
@@ -431,8 +491,6 @@ async function updateInMagento(data, identifier, existingData, params = {}) {
 
   // CRITICAL: Magento API requires PUT to /V1/taxRates (without ID in URL)
   // The ID must be included in the request body as part of the taxRate object
-  const url = `https://${config.commerceDomain}/${config.instanceId}/V1/taxRates`;
-  
   console.log(`🔗 Updating Magento tax rate with identifier: ${identifier} (resolved to: ${taxRateId})`);
   console.log(`🔗 URL: ${url} (ID will be in request body)`);
 
@@ -541,7 +599,7 @@ async function createMagentoTaxRateWhenMissing(previewData, existingDbRow, param
   }
 
   const token = await getAccessToken(config);
-  const url = `https://${config.commerceDomain}/${inst}/V1/taxRates`;
+  const url = buildMagentoTaxRatesResourceUrl(config);
 
   console.log('📤 Magento CREATE (extension-only ABDB row):', JSON.stringify({ taxRate: payload }, null, 2));
 
@@ -575,6 +633,47 @@ async function createMagentoTaxRateWhenMissing(previewData, existingDbRow, param
       magentoPayload || error.message
     );
     return null;
+  }
+}
+
+const TAX_CONFIG_COLLECTION = 'tax_config';
+const TAX_CONFIG_KEY = 'default';
+
+/**
+ * Fills missing Commerce host / tenant from App Builder `tax_config` (same document as Settings).
+ * Prevents `https://host//V1/...` when the browser omits `instanceId` but production saved it in ABDB.
+ */
+async function mergeMagentoSettingsFromTaxConfig(mergedParams, dbCtx, region) {
+  const hasDomain = Boolean(
+    (mergedParams.commerceDomain && String(mergedParams.commerceDomain).trim()) ||
+      (mergedParams.magento_commerce_domain && String(mergedParams.magento_commerce_domain).trim()) ||
+      (process.env.MAGENTO_COMMERCE_DOMAIN && String(process.env.MAGENTO_COMMERCE_DOMAIN).trim())
+  );
+  const hasInstance = Boolean(
+    (mergedParams.instanceId && String(mergedParams.instanceId).trim()) ||
+      (mergedParams.magento_instance_id && String(mergedParams.magento_instance_id).trim()) ||
+      (process.env.MAGENTO_INSTANCE_ID && String(process.env.MAGENTO_INSTANCE_ID).trim())
+  );
+  if (hasDomain && hasInstance) return;
+  let client;
+  try {
+    const { bearerToken, namespace } = dbCtx;
+    const db = await libDb.init({ token: bearerToken, region, ow: { namespace } });
+    client = await db.connect();
+    const collection = await client.collection(TAX_CONFIG_COLLECTION);
+    const rows = await collection.findArray({ config_key: TAX_CONFIG_KEY }, { limit: 1 });
+    if (!Array.isArray(rows) || !rows.length) return;
+    const doc = rows[0];
+    if (!hasDomain && doc.magento_commerce_domain) {
+      mergedParams.commerceDomain = String(doc.magento_commerce_domain).trim();
+    }
+    if (!hasInstance && doc.magento_instance_id != null && String(doc.magento_instance_id).trim() !== '') {
+      mergedParams.instanceId = String(doc.magento_instance_id).trim();
+    }
+  } catch (e) {
+    console.warn('update-tax-rate: read tax_config for Magento host:', e?.message || e);
+  } finally {
+    if (client) await client.close();
   }
 }
 
@@ -671,11 +770,11 @@ async function runUpdateFlow(params, dbCtx) {
   }
 
   /** UI sends commerceDomain / instanceId in POST body; OpenWhisk params alone omit them. */
+  const region = body.region || DEFAULT_REGION;
   const mergedParams = { ...params, ...body };
+  await mergeMagentoSettingsFromTaxConfig(mergedParams, dbCtx, region);
 
   dbCtx.collectionName = resolveTaxRatesCollectionName(mergedParams);
-
-  const region = body.region || DEFAULT_REGION;
   const taxRate = body.taxRate;
   const docId = body._id || body.id;
 
@@ -1000,3 +1099,7 @@ async function main(params) {
 }
 
 exports.main = main;
+/** Exposed for unit tests (URL building / ACCS path correctness). */
+exports.buildMagentoRestApiBaseUrl = buildMagentoRestApiBaseUrl;
+exports.buildMagentoTaxRatesResourceUrl = buildMagentoTaxRatesResourceUrl;
+exports.normalizeCommerceDomainForUrl = normalizeCommerceDomainForUrl;

@@ -287,8 +287,79 @@ async function resolveAuthAndNamespace(params) {
   return { accessToken, namespace };
 }
 
+/**
+ * Web HTTP activations sometimes omit `__OW_NAMESPACE` / `AIO_runtime_namespace` in env.
+ * The Host header is `<namespace>.adobeioruntime.net` or `<namespace>.adobeio-static.net` — use it so
+ * Commerce → Runtime webhook calls can resolve App Builder Database namespace without extra headers.
+ */
+function deriveNamespaceFromRequestHost(params) {
+  const headers = params.__ow_headers || {};
+  const host = headers.host || headers.Host || '';
+  const h = String(host).trim().toLowerCase();
+  if (!h) return '';
+  let m = h.match(/^([0-9a-z][0-9a-z0-9-]*)\.adobeioruntime\.net(?::\d+)?$/i);
+  if (m) return m[1];
+  m = h.match(/^([0-9a-z][0-9a-z0-9-]*)\.adobeio-static\.net(?::\d+)?$/i);
+  if (m) return m[1];
+  return '';
+}
+
+/**
+ * For Adobe Commerce → App Builder webhooks (no `Authorization` header on the request).
+ * Uses OAuth client_credentials from action inputs / env (`generateAccessToken`) and the
+ * deployed runtime namespace (`__OW_NAMESPACE` / `AIO_runtime_namespace`).
+ */
+async function resolveAuthForCommerceWebhook(params) {
+  const ims = normalizeImsParamsForToken(params);
+  let tokenErr = null;
+  let accessToken = null;
+  try {
+    const tokenRes = await generateAccessToken(ims);
+    accessToken = tokenRes && tokenRes.access_token;
+  } catch (err) {
+    tokenErr = err;
+  }
+  if (!accessToken) {
+    accessToken = await getTokenFromGetDbTokenRaw(params);
+  }
+  if (!accessToken) {
+    return {
+      error: {
+        statusCode: 502,
+        body: {
+          status: 'Error',
+          message:
+            (tokenErr && tokenErr.message) ||
+            'Could not obtain IMS token for App Builder Database. Set ADOBE_CLIENT_ID, ADOBE_CLIENT_SECRET, ADOBE_ORG_ID, ADOBE_SCOPE on the action.',
+          hint: 'Scopes must include Adobe I/O App Builder Data Services (adobeio.abdata.*).'
+        }
+      }
+    };
+  }
+  const namespace =
+    params.__OW_NAMESPACE ||
+    process.env.__OW_NAMESPACE ||
+    process.env.AIO_runtime_namespace ||
+    deriveNamespaceFromRequestHost(params) ||
+    '';
+  if (!String(namespace).trim()) {
+    return {
+      error: {
+        statusCode: 500,
+        body: {
+          status: 'Error',
+          message:
+            'Runtime namespace is not set. Could not read __OW_NAMESPACE, AIO_runtime_namespace, or derive from Host (e.g. my-namespace.adobeioruntime.net). Set AIO_runtime_namespace in .env / collect-taxes action inputs and redeploy.'
+        }
+      }
+    };
+  }
+  return { accessToken, namespace: String(namespace).trim() };
+}
+
 module.exports = {
   CORS,
   DEFAULT_REGION,
-  resolveAuthAndNamespace
+  resolveAuthAndNamespace,
+  resolveAuthForCommerceWebhook
 };

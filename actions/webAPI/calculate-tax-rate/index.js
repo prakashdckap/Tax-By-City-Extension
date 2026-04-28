@@ -6,14 +6,84 @@
 const https = require('https');
 const { CORS, DEFAULT_REGION, resolveAuthAndNamespace } = require('../lib/auth-runtime.js');
 const { getDbServiceUrlTemplate, resolveTaxRatesCollectionName } = require('../lib/config');
-const DB_SERVICE_URL_TEMPLATE = getDbServiceUrlTemplate();
+const { normalizeUsTaxRegionForMatching } = require('../lib/us-state-normalize.js');
 
-function dbFindWithBearerToken(namespace, region, bearerToken, collectionName, filter, options) {
-  const baseUrl = DB_SERVICE_URL_TEMPLATE.replace(/<region>/gi, (region || DEFAULT_REGION).toLowerCase());
+/**
+ * App Builder Database / Mongo may return numbers as plain numbers, Extended JSON
+ * (`{ "$numberDouble": "8.25" }`), Decimal128, or strings. UI may label the field "Tax Rate"
+ * but persist as `rate`, `taxRate`, etc.
+ */
+function unwrapNumericFromDb(val) {
+  if (val == null) return null;
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  if (typeof val === 'string') {
+    const s = val.replace(/%/g, '').trim().replace(/,/g, '');
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof val === 'object') {
+    if (val.$numberDouble != null) return parseFloat(String(val.$numberDouble));
+    if (val.$numberDecimal != null) return parseFloat(String(val.$numberDecimal));
+    if (val.$numberInt != null) return parseFloat(String(val.$numberInt));
+    if (val.$numberLong != null) return parseFloat(String(val.$numberLong));
+    if (typeof val.toString === 'function') {
+      const s = val.toString();
+      if (s && s !== '[object Object]') {
+        const n = parseFloat(s.replace(/%/g, '').trim());
+        if (Number.isFinite(n)) return n;
+      }
+    }
+  }
+  return null;
+}
+
+function getTaxRatePercent(rate) {
+  if (!rate || typeof rate !== 'object') return 0;
+  const keys = [
+    'rate',
+    'tax_rate',
+    'taxRate',
+    'percent',
+    'percentage',
+    'value',
+    'tax_percent',
+    'rate_percent',
+    'taxPercentage'
+  ];
+  for (const k of keys) {
+    if (rate[k] === undefined) continue;
+    const n = unwrapNumericFromDb(rate[k]);
+    if (n != null && Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+function dbFindWithBearerToken(params, namespace, region, bearerToken, collectionName, filter, options) {
+  const template = getDbServiceUrlTemplate(params);
+  const baseUrl = String(template || '')
+    .trim()
+    .replace(/<region>/gi, (region || DEFAULT_REGION).toLowerCase());
+  if (!baseUrl) {
+    return Promise.reject(
+      new Error(
+        'APP_BUILDER_DB_URL_TEMPLATE is not set on this action. Add it to .env and app.config.yaml (collect-taxes / calculate-tax-rate inputs).'
+      )
+    );
+  }
   const path = `/v1/collection/${encodeURIComponent(collectionName)}/find`;
   const body = JSON.stringify({ filter: filter || {}, options: options || {} });
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl);
+    let u;
+    try {
+      u = new URL(baseUrl);
+    } catch (e) {
+      reject(
+        new Error(
+          `Invalid APP_BUILDER_DB_URL_TEMPLATE (could not parse as URL): ${e.message || 'Invalid URL'}`
+        )
+      );
+      return;
+    }
     const req = https.request(
       {
         hostname: u.hostname,
@@ -52,9 +122,20 @@ function dbFindWithBearerToken(namespace, region, bearerToken, collectionName, f
   });
 }
 
+/** Normalize dashes/spaces so "78701 – 78710" and typos still parse as a numeric range. */
+function normalizePostcodePatternForRangeParse(raw) {
+  if (raw == null || raw === '*') return '';
+  let s = String(raw).trim();
+  if (!s) return '';
+  s = s.replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-');
+  s = s.replace(/\s*-\s*/g, '-');
+  return s;
+}
+
 function parseZipcodeRange(zipcode) {
-  if (!zipcode || zipcode === '*') return null;
-  const rangeMatch = zipcode.match(/^(\d+)-(\d+)$/);
+  const n = normalizePostcodePatternForRangeParse(zipcode);
+  if (!n || n === '*') return null;
+  const rangeMatch = n.match(/^(\d+)\s*-\s*(\d+)$/);
   if (rangeMatch) {
     return {
       from: parseInt(rangeMatch[1], 10),
@@ -70,12 +151,28 @@ function zipcodeInRange(zipcode, range) {
   return zip >= range.from && zip <= range.to;
 }
 
-function zipcodeMatches(customerZipcode, taxRateZipcode) {
+/** US ZIP+4 and formatting: compare using the first 5 digits when both look US-numeric. */
+function normalizeZipForComparison(zip, country) {
+  if (zip == null || zip === '') return '';
+  const s = String(zip).trim();
+  const c = String(country || '').toUpperCase();
+  if (c === 'US' || c === 'USA') {
+    const m = s.match(/^(\d{5})(?:-\d{4})?$/);
+    if (m) return m[1];
+    const digits = s.replace(/\D/g, '');
+    if (digits.length >= 5) return digits.slice(0, 5);
+  }
+  return s;
+}
+
+function zipcodeMatches(customerZipcode, taxRateZipcode, country) {
   if (!customerZipcode || !taxRateZipcode) return false;
-  if (customerZipcode === taxRateZipcode) return true;
-  if (taxRateZipcode === '*') return true;
+  const cz = normalizeZipForComparison(customerZipcode, country);
+  const rz = normalizeZipForComparison(taxRateZipcode, country);
+  if (cz === rz) return true;
+  if (taxRateZipcode === '*' || rz === '*') return true;
   const range = parseZipcodeRange(taxRateZipcode);
-  if (range && zipcodeInRange(customerZipcode, range)) return true;
+  if (range && zipcodeInRange(cz || customerZipcode, range)) return true;
   return false;
 }
 
@@ -86,27 +183,163 @@ function getZipcodeSortValue(zipcode) {
   return parseInt(zipcode, 10) || 0;
 }
 
-function isExactZipcodeMatch(customerZipcode, taxRateZipcode) {
+function isExactZipcodeMatch(customerZipcode, taxRateZipcode, country) {
   if (!customerZipcode || !taxRateZipcode) return false;
-  return customerZipcode === taxRateZipcode && taxRateZipcode !== '*';
+  if (taxRateZipcode === '*') return false;
+  const cz = normalizeZipForComparison(customerZipcode, country);
+  const rz = normalizeZipForComparison(taxRateZipcode, country);
+  return cz === rz && cz !== '';
 }
 
+/**
+ * App Builder TaxRateManager stores US ZIP ranges as `zip_is_range` + `zip_from` + `zip_to` with
+ * `tax_postcode` null; the single-field form uses `tax_postcode` (e.g. "78701-78710" or "*").
+ */
+function getEffectiveRatePostcodePattern(rate) {
+  if (!rate || typeof rate !== 'object') return '*';
+  const singleRaw = rate.tax_postcode ?? rate.postcode;
+  const single = singleRaw != null ? String(singleRaw).trim() : '';
+  if (single !== '' && single !== '*') {
+    return single;
+  }
+  const from = rate.zip_from != null ? String(rate.zip_from).trim() : '';
+  const to = rate.zip_to != null ? String(rate.zip_to).trim() : '';
+  if (from !== '' && to !== '') {
+    return `${from}-${to}`;
+  }
+  if (single === '*') return '*';
+  return '*';
+}
+
+/**
+ * App Builder tax rows may use ALL/null/*, "TX" vs "Texas", mixed case.
+ */
+function rateStateMatchesLocation(locationState, rate, countryNorm) {
+  if (locationState == null || String(locationState).trim() === '') return true;
+  const rid = rate.tax_region_id;
+  if (rid === undefined || rid === null) return true;
+  const rs = String(rid).trim();
+  if (rs === '' || rs === '*' || rs === '0') return true;
+  const ru = rs.toUpperCase();
+  if (ru === 'ALL' || ru === 'ALL STATES' || ru === '*') return true;
+
+  const locN = normalizeUsTaxRegionForMatching(locationState, countryNorm);
+  const rateN = normalizeUsTaxRegionForMatching(rid, countryNorm);
+  if (!locN || !rateN) return false;
+  return String(locN).toUpperCase() === String(rateN).toUpperCase();
+}
+
+/**
+ * Magento-style city layer on top of an already filter-matched (country + region + postcode) set.
+ *
+ * When `config.taxByCity === false` (legacy): with no quote city, only DB rows with no `city`;
+ * with a quote city, exact city else rows with no `city` (no "all region+postcode" fallback).
+ *
+ * When `config.taxByCity` is not false (default for collect-taxes OOP):
+ * - If the quote has a city and at least one row fully matches that city, keep those rows plus
+ *   generic rows that have no `city` value.
+ * - Otherwise (no city on quote, or no row matches the quote city) return the full
+ *   region+postcode match set (exact ZIP, in-range, and * — already merged in
+ *   `findMatchingTaxRates`). Empty in only if the postcode layer returned nothing.
+ */
+function filterRatesByCityPreference(rates, quoteCity, config) {
+  if (!rates?.length) return rates;
+  const qc = quoteCity != null ? String(quoteCity).trim() : '';
+  const legacy = config && config.taxByCity === false;
+
+  const hasCityOnRate = (r) => {
+    const c = r?.city != null ? String(r.city).trim() : '';
+    return c !== '';
+  };
+
+  if (legacy) {
+    if (!qc) {
+      return rates.filter((r) => !hasCityOnRate(r));
+    }
+    const exact = rates.filter(
+      (r) =>
+        hasCityOnRate(r) &&
+        qc.localeCompare(String(r.city).trim(), undefined, { sensitivity: 'base' }) === 0
+    );
+    if (exact.length > 0) return exact;
+    return rates.filter((r) => !hasCityOnRate(r));
+  }
+
+  if (!qc) {
+    return rates;
+  }
+
+  const exact = rates.filter(
+    (r) =>
+      hasCityOnRate(r) &&
+      qc.localeCompare(String(r.city).trim(), undefined, { sensitivity: 'base' }) === 0
+  );
+  if (exact.length > 0) {
+    const generic = rates.filter((r) => !hasCityOnRate(r));
+    return [...exact, ...generic];
+  }
+
+  return rates;
+}
+
+/**
+ * Magento-style specificity: if the address is already matched by at least one row with a
+ * concrete `tax_postcode` (exact ZIP or a range like 78701-78710), drop rows that use a
+ * catch-all postcode (`*` or empty). Otherwise US-wide / all-ZIP rules (e.g. codes named
+ * US-CA-*) stay in the candidate set and can stack with the correct range row.
+ */
+function filterCatchAllPostcodeWhenSpecificExists(rates) {
+  if (!rates?.length) return rates;
+  const isCatchAllPostcode = (r) => {
+    const pat = getEffectiveRatePostcodePattern(r);
+    return pat === '' || pat === '*';
+  };
+  const hasSpecific = rates.some((r) => !isCatchAllPostcode(r));
+  if (!hasSpecific) return rates;
+  return rates.filter((r) => !isCatchAllPostcode(r));
+}
+
+/**
+ * Load rates for country, then: match tax_region to destination (state), match postcode
+ * (exact, range, or *), merge all of those; then drop catch-all postcodes when a more
+ * specific rule also matches; if none, []. Then apply
+ * `filterRatesByCityPreference` and `preferStateSpecificTaxRates`.
+ */
 async function findMatchingTaxRates(location, config, region, params, dbCtx) {
   const { country, state, zipcode, city } = location;
-  const { taxByCity } = config;
   const { bearerToken, namespace } = dbCtx;
   if (!bearerToken || !namespace) {
     throw new Error('Database token or namespace unavailable.');
   }
 
+  const countryNorm = String(country || '')
+    .trim()
+    .toUpperCase();
   const filter = {
-    tax_country_id: country,
     status: { $ne: false }
   };
-  if (state) filter.tax_region_id = state;
+  const variants = [...new Set([country, countryNorm, countryNorm.toLowerCase()].filter(Boolean))];
+  if (variants.length === 1) {
+    filter.tax_country_id = variants[0];
+  } else {
+    filter.tax_country_id = { $in: variants };
+  }
+
+  const findLimit = Math.min(
+    Math.max(parseInt(String(params.OOP_TAX_DB_FIND_LIMIT || process.env.OOP_TAX_DB_FIND_LIMIT || 1000), 10) || 1000, 100),
+    2000
+  );
 
   const collectionName = dbCtx.collectionName || resolveTaxRatesCollectionName(params);
-  const raw = await dbFindWithBearerToken(namespace, region, bearerToken, collectionName, filter, { limit: 500 });
+  const raw = await dbFindWithBearerToken(
+    params,
+    namespace,
+    region,
+    bearerToken,
+    collectionName,
+    filter,
+    { limit: findLimit }
+  );
   const allRates = Array.isArray(raw) ? raw : raw?.cursor?.firstBatch || raw?.documents || [];
 
   const exactMatches = [];
@@ -114,30 +347,111 @@ async function findMatchingTaxRates(location, config, region, params, dbCtx) {
   const wildcardMatches = [];
 
   for (const rate of allRates) {
-    const rateZipcode = rate.tax_postcode || rate.postcode || '*';
-    const rateCity = rate.city || null;
+    const rateCountry = rate.tax_country_id;
+    if (rateCountry != null && String(rateCountry).trim() !== '' && String(rateCountry).toUpperCase() !== countryNorm) {
+      continue;
+    }
+
+    if (state && !rateStateMatchesLocation(state, rate, countryNorm)) {
+      continue;
+    }
+
+    const rateZipcode = getEffectiveRatePostcodePattern(rate);
 
     let zipcodeMatchType = null;
-    if (isExactZipcodeMatch(zipcode, rateZipcode)) {
+    if (isExactZipcodeMatch(zipcode, rateZipcode, countryNorm)) {
       zipcodeMatchType = 'exact';
-    } else if (zipcodeMatches(zipcode, rateZipcode)) {
+    } else if (zipcodeMatches(zipcode, rateZipcode, countryNorm)) {
       zipcodeMatchType = rateZipcode === '*' ? 'wildcard' : 'range';
     }
     if (!zipcodeMatchType) continue;
-
-    if (taxByCity) {
-      if (city) {
-        if (!rateCity || city !== rateCity) continue;
-      } else if (rateCity) continue;
-    }
 
     if (zipcodeMatchType === 'exact') exactMatches.push(rate);
     else if (zipcodeMatchType === 'range') rangeMatches.push(rate);
     else wildcardMatches.push(rate);
   }
 
-  if (exactMatches.length > 0) return exactMatches;
-  return [...rangeMatches, ...wildcardMatches];
+  const regionPostcodeMatches = mergePostcodeMatchBuckets(
+    exactMatches,
+    rangeMatches,
+    wildcardMatches
+  );
+  const afterPostcodeSpecificity = filterCatchAllPostcodeWhenSpecificExists(regionPostcodeMatches);
+  if (afterPostcodeSpecificity.length === 0) {
+    return [];
+  }
+
+  return preferStateSpecificTaxRates(
+    filterRatesByCityPreference(afterPostcodeSpecificity, city, config),
+    state,
+    countryNorm
+  );
+}
+
+function isStateWildcardTaxRate(rate) {
+  const rid = rate.tax_region_id;
+  if (rid === undefined || rid === null) return true;
+  const s = String(rid).trim();
+  if (s === '' || s === '*' || s === '0') return true;
+  const u = s.toUpperCase();
+  return u === 'ALL' || u === 'ALL STATES';
+}
+
+function stateTaxRateMatchesDestination(rate, locationState, countryNorm) {
+  if (!locationState || isStateWildcardTaxRate(rate)) return false;
+  const rn = normalizeUsTaxRegionForMatching(rate.tax_region_id, countryNorm);
+  const ln = normalizeUsTaxRegionForMatching(locationState, countryNorm);
+  return Boolean(
+    rn && ln && String(rn).toUpperCase() === String(ln).toUpperCase()
+  );
+}
+
+/** Prefer rows whose tax_region_id matches ship-to state over "all states" rows (often mis-labeled). */
+function preferStateSpecificTaxRates(rates, locationState, countryNorm) {
+  if (!rates?.length || !locationState) return rates;
+  const specific = rates.filter((r) => stateTaxRateMatchesDestination(r, locationState, countryNorm));
+  return specific.length > 0 ? specific : rates;
+}
+
+/**
+ * Unique row identity for deduping only true duplicates (same DB document returned twice).
+ * Do not merge distinct rows that share rule_id + tax_identifier — stacked rates need separate lines.
+ */
+function rateRowIdentity(rate) {
+  const id = rate?._id;
+  if (id != null) {
+    if (typeof id === 'object' && id.$oid != null) return `oid:${String(id.$oid)}`;
+    return `id:${String(id)}`;
+  }
+  const magentoId = rate.rate_id ?? rate.tax_calculation_rate_id ?? rate.entity_id;
+  if (magentoId != null && String(magentoId).trim() !== '') {
+    return `mid:${String(magentoId)}`;
+  }
+  const ruleId = rate.rule_id ?? rate.tax_rule_id ?? 'default';
+  const taxId = rate.tax_identifier ?? rate.code ?? '';
+  const zip = getEffectiveRatePostcodePattern(rate);
+  const pct = getTaxRatePercent(rate);
+  const city = String(rate.city ?? '');
+  return `syn:${ruleId}|${taxId}|${zip}|${city}|${pct}`;
+}
+
+/**
+ * Union all postcode match types (exact, ZIP range e.g. 78701-78710, wildcard `*`) for the same
+ * region; dedupe same DB document. Does not pick exact over range—Magento-style collection of
+ * all applicable tax_postcode rules for the address.
+ */
+function mergePostcodeMatchBuckets(exactMatches, rangeMatches, wildcardMatches) {
+  const out = [];
+  const seen = new Set();
+  for (const list of [exactMatches, rangeMatches, wildcardMatches]) {
+    for (const rate of list) {
+      const k = rateRowIdentity(rate);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(rate);
+    }
+  }
+  return out;
 }
 
 function sortTaxRatesByPriority(rates) {
@@ -158,12 +472,12 @@ function sortTaxRatesByPriority(rates) {
     const taxIdB = b.tax_identifier || b.code || '';
     if (taxIdA !== taxIdB) return taxIdB.localeCompare(taxIdA);
 
-    const zipcodeA = getZipcodeSortValue(a.tax_postcode || a.postcode);
-    const zipcodeB = getZipcodeSortValue(b.tax_postcode || b.postcode);
+    const zipcodeA = getZipcodeSortValue(getEffectiveRatePostcodePattern(a));
+    const zipcodeB = getZipcodeSortValue(getEffectiveRatePostcodePattern(b));
     if (zipcodeA !== zipcodeB) return zipcodeB - zipcodeA;
 
-    const rateA = parseFloat(a.rate) || 0;
-    const rateB = parseFloat(b.rate) || 0;
+    const rateA = getTaxRatePercent(a);
+    const rateB = getTaxRatePercent(b);
     return rateB - rateA;
   });
 }
@@ -179,24 +493,14 @@ function calculateFinalTaxRate(rates, location, config) {
 
   const sortedRates = sortTaxRatesByPriority(rates);
   const deduplicatedRates = [];
-  const rateMap = new Map();
+  const seen = new Set();
 
   for (const rate of sortedRates) {
-    const ruleId = rate.rule_id || rate.tax_rule_id || 'default';
-    const taxId = rate.tax_identifier || rate.code || rate._id?.toString() || '';
-    const key = `${ruleId}_${taxId}`;
-
-    if (!rateMap.has(key)) {
-      rateMap.set(key, rate);
-    } else {
-      const existingRate = rateMap.get(key);
-      const existingValue = parseFloat(existingRate.rate) || 0;
-      const currentValue = parseFloat(rate.rate) || 0;
-      if (currentValue > existingValue) rateMap.set(key, rate);
-    }
+    const key = rateRowIdentity(rate);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduplicatedRates.push(rate);
   }
-
-  deduplicatedRates.push(...Array.from(rateMap.values()));
 
   const priorityGroups = new Map();
   for (const rate of deduplicatedRates) {
@@ -221,7 +525,7 @@ function calculateFinalTaxRate(rates, location, config) {
     for (const [, taxRates] of taxIdGroups.entries()) {
       if (taxRates.length > 1) {
         for (const rate of taxRates) {
-          const rateValue = parseFloat(rate.rate) || 0;
+          const rateValue = getTaxRatePercent(rate);
           totalTax += rateValue;
           appliedRates.push({
             rate: rateValue,
@@ -234,7 +538,7 @@ function calculateFinalTaxRate(rates, location, config) {
         }
       } else {
         const rate = taxRates[0];
-        const rateValue = parseFloat(rate.rate) || 0;
+        const rateValue = getTaxRatePercent(rate);
         totalTax += rateValue;
         appliedRates.push({
           rate: rateValue,
@@ -284,10 +588,10 @@ async function calculateTaxRate(location, config, region, params, dbCtx) {
             : rate._id != null
               ? String(rate._id)
               : undefined,
-      rate: parseFloat(rate.rate) || 0,
+      rate: getTaxRatePercent(rate),
       tax_country_id: rate.tax_country_id,
       tax_region_id: rate.tax_region_id,
-      tax_postcode: rate.tax_postcode || rate.postcode,
+      tax_postcode: getEffectiveRatePostcodePattern(rate),
       city: rate.city,
       tax_identifier: rate.tax_identifier || rate.code,
       rule_id: rate.rule_id || rate.tax_rule_id,
@@ -459,3 +763,8 @@ async function main(params) {
 }
 
 exports.main = main;
+/** Used by `collect-taxes` (OOP tax webhook) to resolve rates from App Builder Database. */
+exports.calculateTaxRate = calculateTaxRate;
+exports.filterCatchAllPostcodeWhenSpecificExists = filterCatchAllPostcodeWhenSpecificExists;
+exports.getEffectiveRatePostcodePattern = getEffectiveRatePostcodePattern;
+exports.filterRatesByCityPreference = filterRatesByCityPreference;

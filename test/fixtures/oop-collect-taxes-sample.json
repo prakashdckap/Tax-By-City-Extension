@@ -1,0 +1,75 @@
+{
+  "oopQuote": {
+    "quote_id": 12345,
+    "customer_tax_class": "Retail Customer",
+    "items": [
+      {
+        "code": "simple",
+        "type": "simple",
+        "tax_class": "Taxable Goods",
+        "unit_price": 29.99,
+        "quantity": 2,
+        "is_tax_included": false,
+        "discount_amount": 0,
+        "custom_attributes": [],
+        "sku": "24-WG085",
+        "name": "Yoga Strap",
+        "tax": {},
+        "tax_breakdown": []
+      },
+      {
+        "code": "simple",
+        "type": "simple",
+        "tax_class": "Taxable Goods",
+        "unit_price": 15,
+        "quantity": 1,
+        "is_tax_included": false,
+        "discount_amount": 2.5,
+        "custom_attributes": [],
+        "sku": "24-UG04",
+        "name": "Sprite Stasis Ball",
+        "tax": {},
+        "tax_breakdown": []
+      }
+    ],
+    "ship_from_address": {
+      "street": ["1 Commerce Way"],
+      "city": "Austin",
+      "region": "Texas",
+      "region_code": "TX",
+      "country": "US",
+      "postcode": "78701"
+    },
+    "ship_to_address": {
+      "street": ["456 Oak Avenue"],
+      "city": "Los Angeles",
+      "region": "California",
+      "region_code": "CA",
+      "country": "US",
+      "postcode": "90001"
+    },
+    "billing_address": {
+      "street": ["456 Oak Avenue"],
+      "city": "Los Angeles",
+      "region": "California",
+      "region_code": "CA",
+      "country": "US",
+      "postcode": "90001"
+    },
+    "shipping": {
+      "shipping_method": "flatrate_flatrate",
+      "shipping_description": "Flat Rate — Fixed"
+    },
+    "custom_attributes": [],
+    "customer": {
+      "entity_id": 1,
+      "website_id": 1,
+      "group_id": 1,
+      "email": "john.doe@example.com",
+      "firstname": "John",
+      "lastname": "Doe",
+      "middlename": ""
+    }
+  }
+  
+}

@@ -199,6 +199,34 @@ application:
               require-adobe-auth: false
               include-ims-credentials: true
               final: true
+          collect-taxes:
+            function: actions/webAPI/collect-taxes/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            limits:
+              timeout: 120000
+            inputs:
+              # Fallback when webhook activation lacks Host-derived namespace (commerce webhook auth).
+              AIO_runtime_namespace: $AIO_runtime_namespace
+              LOG_LEVEL: debug
+              DEFAULT_REGION: $DEFAULT_REGION
+              TAX_RATES_COLLECTION: $TAX_RATES_COLLECTION
+              APP_BUILDER_DB_URL_TEMPLATE: $APP_BUILDER_DB_URL_TEMPLATE
+              RUNTIME_USERNAME: $RUNTIME_USERNAME
+              RUNTIME_PASSWORD: $RUNTIME_PASSWORD
+              RUNTIME_AUTH_BASE64: $RUNTIME_AUTH_BASE64
+              ADOBE_CLIENT_ID: $ADOBE_CLIENT_ID
+              ADOBE_CLIENT_SECRET: $ADOBE_CLIENT_SECRET
+              ADOBE_TOKEN_URL: $ADOBE_TOKEN_URL
+              ADOBE_ORG_ID: $ADOBE_ORG_ID
+              ADOBE_SCOPE: $ADOBE_SCOPE_EXTENDED
+              COMMERCE_WEBHOOKS_PUBLIC_KEY: $COMMERCE_WEBHOOKS_PUBLIC_KEY
+              SKIP_WEBHOOK_SIGNATURE_VERIFY: $SKIP_WEBHOOK_SIGNATURE_VERIFY
+            annotations:
+              require-adobe-auth: false
+              include-ims-credentials: true
+              raw-http: true
+              final: true
           create-tax-rate:
             function: actions/webAPI/create-tax-rate/index.js
             web: 'yes'
@@ -326,3 +354,6 @@ modules:
 extensions:
   commerce/backend-ui/1:
     $include: src/admin-ui/ext.config.yaml
+commerce:
+  features:
+    out_of_process_tax: true

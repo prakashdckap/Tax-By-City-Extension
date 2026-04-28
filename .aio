@@ -1,179 +1,238 @@
 {
-  "project": {
-    "id": "4566206088345553099",
-    "name": "TaxByCity",
-    "title": "Tax By City",
-    "org": {
-      "id": "3676633",
-      "name": "Klizer Partner Sandbox",
-      "ims_org_id": "C116239B68225A790A495C96@AdobeOrg",
-      "details": {
-        "services": [
+  project: {
+    id: "4566206088345553099",
+    name: "TaxByCity",
+    title: "Tax By City",
+    org: {
+      id: "3676633",
+      name: "Klizer Partner Sandbox",
+      ims_org_id: "C116239B68225A790A495C96@AdobeOrg",
+      details: {
+        services: [
           {
-            "name": "Adobe Express Embed SDK",
-            "code": "CCEmbedCompanionAPI",
-            "type": "adobeid"
+            name: "Adobe Express Embed SDK",
+            code: "CCEmbedCompanionAPI",
+            type: "adobeid"
           },
           {
-            "name": "AEM Assets Author API",
-            "code": "AEM Assets Author API",
-            "type": "adobeid"
+            name: "AEM Assets Author API",
+            code: "AEM Assets Author API",
+            type: "adobeid"
           },
           {
-            "name": "Adobe Fusion",
-            "code": "Fusion-API",
-            "type": "adobeid"
+            name: "Adobe Fusion",
+            code: "Fusion-API",
+            type: "adobeid"
           },
           {
-            "name": "Adobe Commerce as a Cloud Service",
-            "code": "ACCS-REST-API",
-            "type": "adobeid"
+            name: "Adobe Commerce as a Cloud Service",
+            code: "ACCS-REST-API",
+            type: "adobeid"
           },
           {
-            "name": "AEM CS Sites Content Management",
-            "code": "AEM CS Sites Content Management",
-            "type": "adobeid"
+            name: "AEM CS Sites Content Management",
+            code: "AEM CS Sites Content Management",
+            type: "adobeid"
           },
           {
-            "name": "Lightroom Services",
-            "code": "LightroomPartnersSDK",
-            "type": "adobeid"
+            name: "Lightroom Services",
+            code: "LightroomPartnersSDK",
+            type: "adobeid"
           },
           {
-            "name": "API Mesh for Adobe Developer App Builder",
-            "code": "GraphQLServiceSDK",
-            "type": "adobeid"
+            name: "API Mesh for Adobe Developer App Builder",
+            code: "GraphQLServiceSDK",
+            type: "adobeid"
           },
           {
-            "name": "Frame.io API",
-            "code": "FrameioAPISDK",
-            "type": "adobeid"
+            name: "Frame.io API",
+            code: "FrameioAPISDK",
+            type: "adobeid"
           },
           {
-            "name": "PDF Embed API",
-            "code": "ViewSDK",
-            "type": "adobeid"
+            name: "PDF Embed API",
+            code: "ViewSDK",
+            type: "adobeid"
           },
           {
-            "name": "Adobe Commerce with Adobe ID",
-            "code": "AdobeCommerceWithAdobeID",
-            "type": "adobeid"
+            name: "Adobe Commerce with Adobe ID",
+            code: "AdobeCommerceWithAdobeID",
+            type: "adobeid"
           },
           {
-            "name": "AEM Forms Delivery and Runtime API",
-            "code": "FormsDeliveryRuntimeSDK",
-            "type": "adobeid"
+            name: "AEM Forms Delivery and Runtime API",
+            code: "FormsDeliveryRuntimeSDK",
+            type: "adobeid"
           },
           {
-            "name": "Asset Compute",
-            "code": "AssetComputeSDK",
-            "type": "entp"
+            name: "Asset Compute",
+            code: "AssetComputeSDK",
+            type: "entp"
           },
           {
-            "name": "I/O Management API",
-            "code": "AdobeIOManagementAPISDK",
-            "type": "entp"
+            name: "AEM CS Sites Content Management",
+            code: "AEM CS Sites Content Management",
+            type: "entp"
           },
           {
-            "name": "Smart Content",
-            "code": "MCSmartContentServicesSDK",
-            "type": "entp"
+            name: "I/O Management API",
+            code: "AdobeIOManagementAPISDK",
+            type: "entp"
           },
           {
-            "name": "Primetime Ad Insertion",
-            "code": "Ad Config Service",
-            "type": "entp"
+            name: "Smart Content",
+            code: "MCSmartContentServicesSDK",
+            type: "entp"
           },
           {
-            "name": "App Builder Data Services",
-            "code": "AppBuilderDataServicesSDK",
-            "type": "entp"
+            name: "Primetime Ad Insertion",
+            code: "Ad Config Service",
+            type: "entp"
           },
           {
-            "name": "Experience Cloud Setup Automation",
-            "code": "DxSetupAutomationSDK",
-            "type": "entp"
+            name: "Edge Delivery Services",
+            code: "nogw-4011f358-2edb-4b01-acb8-3c84e0cbb299",
+            type: "entp"
           },
           {
-            "name": "I/O Events",
-            "code": "CloudIntegrationSDK",
-            "type": "entp"
+            name: "App Builder Data Services",
+            code: "AppBuilderDataServicesSDK",
+            type: "entp"
           },
           {
-            "name": "Adobe Commerce as a Cloud Service",
-            "code": "ACCS-REST-API",
-            "type": "entp"
+            name: "Experience Cloud Setup Automation",
+            code: "DxSetupAutomationSDK",
+            type: "entp"
           },
           {
-            "name": "Adobe Commerce Optimizer Ingestion",
-            "code": "ACO-Ingestion",
-            "type": "entp"
+            name: "I/O Events",
+            code: "CloudIntegrationSDK",
+            type: "entp"
           },
           {
-            "name": "Adobe Commerce Optimizer Admin",
-            "code": "ACO-Admin",
-            "type": "entp"
+            name: "Adobe Commerce as a Cloud Service",
+            code: "ACCS-REST-API",
+            type: "entp"
           },
           {
-            "name": "Cloud Manager",
-            "code": "CloudManagerSDK",
-            "type": "entp"
+            name: "Adobe Commerce Optimizer Ingestion",
+            code: "ACO-Ingestion",
+            type: "entp"
           },
           {
-            "name": "Adobe Status API",
-            "code": "StatusAPISDK",
-            "type": "entp"
+            name: "Adobe Commerce Optimizer Admin",
+            code: "ACO-Admin",
+            type: "entp"
           },
           {
-            "name": "Globalization Content Service",
-            "code": "gcs-partner",
-            "type": "entp"
+            name: "Cloud Manager",
+            code: "CloudManagerSDK",
+            type: "entp"
           },
           {
-            "name": "Adobe I/O Events for Adobe Commerce",
-            "code": "commerceeventing",
-            "type": "entp"
+            name: "Adobe Status API",
+            code: "StatusAPISDK",
+            type: "entp"
+          },
+          {
+            name: "Globalization Content Service",
+            code: "gcs-partner",
+            type: "entp"
+          },
+          {
+            name: "AEM Forms Delivery and Runtime API",
+            code: "FormsDeliveryRuntimeSDK",
+            type: "entp"
+          },
+          {
+            name: "Adobe I/O Events for Adobe Commerce",
+            code: "commerceeventing",
+            type: "entp"
+          },
+          {
+            name: "AEM Assets Author API",
+            code: "AEM Assets Author API",
+            type: "entp"
           }
         ]
       }
     },
-    "workspace": {
-      "id": "4566206088345583548",
-      "name": "Production",
-      "title": "Production",
-      "action_url": "https://3676633-taxbycity.adobeioruntime.net",
-      "app_url": "https://3676633-taxbycity.adobeio-static.net",
-      "details": {
-        "credentials": [
+    workspace: {
+      id: "4566206088345583548",
+      name: "Production",
+      title: "Production",
+      action_url: "https://3676633-taxbycity.adobeioruntime.net",
+      app_url: "https://3676633-taxbycity.adobeio-static.net",
+      details: {
+        credentials: [
           {
-            "id": "876492",
-            "name": "Credential_in_Tax_By_City_-_Production",
-            "integration_type": "oauth_server_to_server"
+            id: "876492",
+            name: "Credential_in_Tax_By_City_-_Production",
+            integration_type: "oauth_server_to_server"
           },
           {
-            "id": "876494",
-            "name": "Project_1765779600988K",
-            "integration_type": "apikey"
+            id: "876494",
+            name: "Project_1765779600988K",
+            integration_type: "apikey"
           }
         ],
-        "services": [
+        services: [
           {
-            "code": "ACCS-REST-API",
-            "name": "Adobe Commerce as a Cloud Service"
+            code: "ACCS-REST-API",
+            name: "Adobe Commerce as a Cloud Service"
           },
           {
-            "code": "GraphQLServiceSDK",
-            "name": "API Mesh for Adobe Developer App Builder"
+            code: "AdobeIOManagementAPISDK",
+            name: "I/O Management API"
           },
           {
-            "code": "AppBuilderDataServicesSDK",
-            "name": "App Builder Data Services"
+            code: "GraphQLServiceSDK",
+            name: "API Mesh for Adobe Developer App Builder"
+          },
+          {
+            code: "CloudIntegrationSDK",
+            name: "I/O Events"
+          },
+          {
+            code: "AppBuilderDataServicesSDK",
+            name: "App Builder Data Services"
           }
         ],
-        "events": {
-          "registrations": []
+        events: {
+          registrations: []
+        }
+      },
+      endpoints: {
+        commerce/extensibility/1: {
+          workerProcess: [
+            {
+              href: "https://3676633-taxbycity.adobeioruntime.net/api/v1/web/app-management/app-config"
+            }
+          ]
         },
-        "mesh": {}
+        commerce/backend-ui/1: {
+          view: [
+            {
+              href: "https://3676633-taxbycity.adobeio-static.net/index.html"
+            }
+          ]
+        }
+      }
+    }
+  },
+  ims: {
+    contexts: {
+      oauth_s2s_3676633-taxbycity: {
+        client_id: "02cacbf78e8b4e8d8cfe2f1eaa886c30",
+        client_secrets: "[\"p8e-bcWG43HfBj2eKQ5okV4JmLWkcZtI1oBd\"]",
+        ims_org_id: "C116239B68225A790A495C96@AdobeOrg",
+        scopes: "[\"adobeio_api\",\"adobeio.abdata.read\",\"adobeio.abdata.write\",\"adobeio.abdata.manage\",\"AdobeID\",\"openid\",\"read_organizations\",\"additional_info.projectedProductContext\",\"additional_info.roles\"]",
+        technical_account_email: "dummy@techacct.adobe.com",
+        technical_account_id: "dummy@techacct.adobe.com",
+        access_token: {
+          token: "eyJhbGciOiJSUzI1NiIsIng1dSI6Imltc19uYTEta2V5LWF0LTEuY2VyIiwia2lkIjoiaW1zX25hMS1rZXktYXQtMSIsIml0dCI6ImF0In0.eyJpZCI6IjE3NzczNzA3ODgyMDZfOWFlMDU1YTItMGQ2Mi00ZjU4LWE1Y2EtMmRhNTFmYThhNDE3X3V3MiIsIm9yZyI6IkMxMTYyMzlCNjgyMjVBNzkwQTQ5NUM5NkBBZG9iZU9yZyIsInR5cGUiOiJhY2Nlc3NfdG9rZW4iLCJjbGllbnRfaWQiOiIwMmNhY2JmNzhlOGI0ZThkOGNmZTJmMWVhYTg4NmMzMCIsInVzZXJfaWQiOiJCNjFGMjFFNjY5M0ZBQTExMEE0OTVFMDRAdGVjaGFjY3QuYWRvYmUuY29tIiwiYXMiOiJpbXMtbmExIiwiYWFfaWQiOiJCNjFGMjFFNjY5M0ZBQTExMEE0OTVFMDRAdGVjaGFjY3QuYWRvYmUuY29tIiwiY3RwIjozLCJtb2kiOiIyOGJhNjMwIiwiZXhwaXJlc19pbiI6Ijg2NDAwMDAwIiwic2NvcGUiOiJhZG9iZWlvLmFiZGF0YS5tYW5hZ2Usb3BlbmlkLEFkb2JlSUQscmVhZF9vcmdhbml6YXRpb25zLGFkb2JlaW9fYXBpLGFkb2JlaW8uYWJkYXRhLnJlYWQsYWRkaXRpb25hbF9pbmZvLnJvbGVzLGFkb2JlaW8uYWJkYXRhLndyaXRlLGFkZGl0aW9uYWxfaW5mby5wcm9qZWN0ZWRQcm9kdWN0Q29udGV4dCIsImNyZWF0ZWRfYXQiOiIxNzc3MzcwNzg4MjA2In0.G6LUUuolsk7ZNqQ-M_ZLxJyBAG-2tN2edYl7uvZwxxied4nk3F_IRgpS9ZTrIVkEHipsxefeHdebqpgcwq5OfUa02Z5spaw4Q8HqYjrtvv81-_3jrSD7Pn24_0Xtzz_b-ErmyUypMubrW7d8ZIHFy9XGEB9wGEWVfZZlTW3_6_nEsHyWLYS-bQXaHjn1WNiSzq_K2QjfM6Jmwmrz7a0nmyVz4UWZ3_i-n_unoJw2ul5cKLNVvOKMRyJvSBlZXDqL9Z-cfEXcCUWkoxvMgo06q78SjHeXdTf8R6BlWGScGfSGSqWbz1V1lQhu2CT4qKh2e2T4AwNhPZ3L1OSn5iPFHQ",
+          expiry: 1777457188206
+        }
       }
     }
   }

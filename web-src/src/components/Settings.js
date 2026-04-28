@@ -37,6 +37,7 @@ const Settings = (props) => {
   const [configStatus, setConfigStatus] = useState(null)
   const [settings, setSettings] = useState({
     tax_by_city_enabled: true,
+    oop_tax_calculation_enabled: false,
     fallback_to_magento: false,
     cache_enabled: true,
     // Magento sync settings
@@ -182,9 +183,22 @@ const Settings = (props) => {
 
           const response = await actionWebInvoke(actionUrl, headers, params)
 
-          if (response.statusCode === 200) {
+          if (response.statusCode === 200 && response.body) {
+            const { oop_tax_integration: oopMeta, ...rest } = response.body
+            setSettings((prev) => ({ ...prev, ...rest }))
+            if (oopMeta && !oopMeta.skipped && oopMeta.success === false) {
+              setError(
+                'Settings saved, but OOP tax integration failed on Commerce: ' +
+                  (oopMeta.message || 'unknown error')
+              )
+            } else if (oopMeta && oopMeta.skipped && oopMeta.message) {
+              setError(
+                'Settings saved. OOP tax was not pushed to Commerce: ' + oopMeta.message
+              )
+            } else {
+              setError(null)
+            }
             setSuccess(true)
-            setError(null)
             setConfigStatus('connected')
             setTimeout(() => setSuccess(false), 3000)
             return
@@ -345,6 +359,17 @@ const Settings = (props) => {
               </Checkbox>
               <Text slot="description" size="S">
                 Enable city-based tax calculation. When disabled, Magento default tax calculation will be used.
+              </Text>
+
+              <Checkbox
+                isSelected={settings.oop_tax_calculation_enabled}
+                onChange={(value) => handleInputChange('oop_tax_calculation_enabled', value)}
+              >
+                Enable OOP Tax Rate calculation
+              </Checkbox>
+              <Text slot="description" size="S">
+                Registers this app as the out-of-process (OOP) tax provider on Adobe Commerce (ACCS) when you save.
+                Requires Commerce domain, instance ID, and server credentials (ADOBE_CLIENT_ID / ADOBE_SCOPE with commerce.accs) on the tax-config action.
               </Text>
 
               <Checkbox

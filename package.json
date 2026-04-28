@@ -39,6 +39,7 @@
     "build": "node scripts/inject-runtime-auth-for-web.mjs && aio app build && node scripts/fix-web-dist-relative-assets.mjs",
     "deploy": "node scripts/inject-runtime-auth-for-web.mjs && aio app build && node scripts/fix-web-dist-relative-assets.mjs && aio app deploy --force-deploy",
     "test": "jest --passWithNoTests ./test",
+    "test:collect-taxes": "node scripts/test-collect-taxes.mjs",
     "e2e": "jest --collectCoverage=false --testRegex ./e2e",
     "lint": "eslint --ignore-pattern web-src --no-error-on-unmatched-pattern test src actions",
     "lint:fix": "npm run lint -- --fix",
